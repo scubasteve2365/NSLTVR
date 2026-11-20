@@ -569,8 +569,40 @@ namespace NSLTVR
             catch (Exception e) { return "unknown (" + e.Message + ")"; }
         }
 
+        // Cutscene fade holders the game left behind (Steve, build 7: every robot-head pickup and the bell scene left
+        // "CutsceneSequence .../03 BellRing Repeatable" and ".../04 GolemBridgeSequence" holding the fade, up to three times
+        // over, after the cutscene had ended). A cutscene that is not running holds no fade, and one that is running holds
+        // at most one; anything beyond that is released at once, so the game's own fade-in runs.
+        static readonly System.Reflection.FieldInfo inProgressField = AccessTools.Field(typeof(Playful.SuperLucky.Sequences.CutsceneSequence), "_inProgress");
+        int orphanReleases;
+
+        void ReleaseOrphanFades()
+        {
+            var fl = fadeLock(null);
+            if (fl == null || !fl.IsLocked) return;
+            var list = lockListField.GetValue(fl) as System.Collections.Generic.List<UnityEngine.Object>;
+            if (list == null) return;
+            System.Collections.Generic.Dictionary<UnityEngine.Object, int> seen = null;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                var cs = list[i] as Playful.SuperLucky.Sequences.CutsceneSequence;
+                if (cs == null) continue;
+                bool running = cs.isActiveAndEnabled && (bool)inProgressField.GetValue(cs);
+                if (seen == null) seen = new System.Collections.Generic.Dictionary<UnityEngine.Object, int>();
+                int n;
+                seen.TryGetValue(cs, out n);
+                seen[cs] = n + 1;
+                if (!running || n + 1 > 1)
+                {
+                    if (orphanReleases++ < 20) Plugin.Log.LogInfo("FADE released a fade left held by " + Probes.PathOf(cs.transform) + (running ? " (held twice while running)" : " (cutscene not running)"));
+                    Playful.SuperLucky.Global.GlobalFadeController.ReleaseFadeOutFireAndForget(cs);
+                }
+            }
+        }
+
         void ReadFade()
         {
+            try { ReleaseOrphanFades(); } catch (Exception e) { if (orphanReleases++ < 20) Plugin.Log.LogWarning("FADE check failed: " + e.Message); }
             fadeA = 0f;
             var g = Playful.SuperLucky.Global.GlobalFadeController.Instance;
             if (g == null) return;

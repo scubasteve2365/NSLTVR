@@ -15,13 +15,14 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.7.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.8.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 7";
+        internal const string Version = "build 8";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
+        static readonly System.Collections.Generic.HashSet<string> seenErrors = new System.Collections.Generic.HashSet<string>();
         ConfigEntry<bool> labCommands, autoStart, bloomOff;
         ConfigEntry<float> turnSpeed, resolution, ipdScale, hudWidth, hudX, hudY, hudDistance, menuWidth, menuX, menuY, menuDistance;
         ConfigEntry<string> hudMode, menuKey, forcePreset;
@@ -76,6 +77,15 @@ namespace NSLTVR
             Speed.Rig = Rig;
             SceneManager.sceneLoaded += (scene, mode) => Log.LogInfo("SCENE loaded " + scene.name + " mode " + mode + " frame " + Time.frameCount);
             new Harmony("com.scubasteve2365.nsltvr").PatchAll(typeof(Plugin).Assembly);
+            // Game errors (exceptions in its coroutines) only reach Unity's own log, which RigA's log fetch cannot read.
+            // The first 30 distinct ones are copied here with their stack.
+            Application.logMessageReceived += (msg, stack, type) =>
+            {
+                if (type != LogType.Exception && msg.IndexOf("Exception", StringComparison.Ordinal) < 0) return;
+                string key = msg + "|" + (stack.Length > 200 ? stack.Substring(0, 200) : stack);
+                if (seenErrors.Count >= 30 || !seenErrors.Add(key)) return;
+                Log.LogWarning("GAME " + type + ": " + msg + " | " + stack.Replace((char)10, (char)47));
+            };
             Log.LogInfo("NSLTVR " + Version + " loaded. Unity " + Application.unityVersion + ", pointer size " + IntPtr.Size + ", camera rig " + CameraRig.Value + ", menu key " + Menu.MenuKey);
             Log.LogInfo("ONLINE telemetry: TelemetryClientWrapper.FireEvent is empty in this build (static read), nothing to block");
         }
@@ -254,6 +264,18 @@ namespace NSLTVR
                 case "track": StartCoroutine(Track(a.Length > 1 ? F(a[1]) : 3f)); break;
                 case "preferpad": PreferPadPatch.On = a[1] == "1"; Log.LogInfo("prefer pad " + PreferPadPatch.On); break;
                 case "fadetest": Playful.SuperLucky.Global.GlobalFadeController.RequestFadeOutFireAndForget(Rig); Log.LogInfo("lab: fade requested by the mod and never released"); break;
+                case "cutscene":
+                    foreach (var cs in UnityEngine.Object.FindObjectsOfType<Playful.SuperLucky.Sequences.CutsceneSequence>())
+                        if (Probes.PathOf(cs.transform).IndexOf(string.Join(" ", a, 1, a.Length - 1), StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            Log.LogInfo("lab: starting cutscene " + Probes.PathOf(cs.transform));
+                            cs.StartCoroutine((System.Collections.IEnumerator)AccessTools.Method(typeof(Playful.SuperLucky.Sequences.CutsceneSequence), "DoSequence").Invoke(cs, null));
+                            break;
+                        }
+                    break;
+                case "fadeorphan":
+                    { var cs = UnityEngine.Object.FindObjectOfType<Playful.SuperLucky.Sequences.CutsceneSequence>(); Playful.SuperLucky.Global.GlobalFadeController.RequestFadeOutFireAndForget(cs); Playful.SuperLucky.Global.GlobalFadeController.RequestFadeOutFireAndForget(cs); Log.LogInfo("lab: fade held twice by idle cutscene " + Probes.PathOf(cs.transform)); }
+                    break;
                 case "hud": Rig.HudMode = a[1] == "head" ? 1 : a[1] == "hidden" ? 2 : 0; break;
                 default: Log.LogWarning("unknown command " + a[0]); break;
             }
