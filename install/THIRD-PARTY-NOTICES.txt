@@ -1,0 +1,22 @@
+NSLTVR includes these unmodified parts. Their licences are in the licences folder.
+
+BepInEx 5.4.23.6 (x64)
+  https://github.com/BepInEx/BepInEx
+  LGPL-2.1. Includes UnityDoorstop, HarmonyX, MonoMod and Mono.Cecil under their own licences.
+  Source code is available at the link above.
+
+OpenXR loader 1.1.65 (Khronos Group)
+  https://github.com/KhronosGroup/OpenXR-SDK-Source
+  Apache-2.0.
+
+MinHook (Tsuda Kageyu), compiled into NSLTVRNative.dll
+  https://github.com/TsudaKageyu/minhook
+  BSD 2-Clause licence.
+
+The OpenXR side, the frame pacing and the Steady picture mode come from CupheadVR and OriVR (MIT, scubasteve2365).
+The Steady picture mode is based on a contribution by junglejuz (OriVR pull request 2, MIT).
+The menu click sounds are generated tones, ported from CupheadVR. No game audio files are included.
+
+The menu draws its text with the game's own fonts, already loaded by the game. No font files are included.
+
+New Super Lucky's Tale belongs to Playful Studios. This mod contains no game files.
