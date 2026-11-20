@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using HarmonyLib;
 using Playful.SuperLucky.Camera;
 using UnityEngine;
 
@@ -307,6 +308,7 @@ namespace NSLTVR
                 if (vi.viewsValid != 0) lastView = vi;
 
                 float t0 = Time.realtimeSinceStartup;
+                ReadFade();
                 GL.IssuePluginEvent(renderEvent, EventEyeBegin);
                 bool world = RenderEyes(vi);
                 int flags = vi.viewsValid != 0 ? FlagViewsValid : 0;
@@ -515,7 +517,84 @@ namespace NSLTVR
             RenderTexture.active = old;
         }
 
-        void Finish(int i) { Flip(eyeRender[i], eyeOut[i], Stamp); }
+        void Finish(int i)
+        {
+            Flip(eyeRender[i], eyeOut[i], Stamp);
+            if (fadeA > 0.001f) Darken(eyeOut[i], fadeColor, fadeA);
+        }
+
+        // The game fades to black through an overlay canvas image (GlobalFadeController._overlayImage), which only reaches the
+        // window. Without it, the first level of each launch showed Lucky frozen while the game was still placing him
+        // (Steve, build 4). The same fade is laid over both eye images.
+        static readonly AccessTools.FieldRef<Playful.SuperLucky.Global.GlobalFadeController, UnityEngine.UI.Image> fadeImage =
+            AccessTools.FieldRefAccess<Playful.SuperLucky.Global.GlobalFadeController, UnityEngine.UI.Image>("_overlayImage");
+        Color fadeColor = Color.black;
+        float fadeA;
+        Material fadeMat;
+        bool fadeLogged;
+
+        void ReadFade()
+        {
+            fadeA = 0f;
+            var g = Playful.SuperLucky.Global.GlobalFadeController.Instance;
+            if (g == null) return;
+            var img = fadeImage(g);
+            if (img == null || !img.isActiveAndEnabled) return;
+            fadeColor = img.color;
+            fadeA = img.color.a;
+            if (!fadeLogged && fadeA > 0.5f) { fadeLogged = true; Plugin.Log.LogInfo("FADE the game's fade image is shown over the eyes (alpha " + fadeA.ToString("F2", CultureInfo.InvariantCulture) + ")"); }
+        }
+
+        void Darken(RenderTexture dst, Color c, float a)
+        {
+            if (fadeMat == null)
+            {
+                fadeMat = new Material(Shader.Find("Hidden/Internal-Colored"));
+                fadeMat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                fadeMat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                fadeMat.SetInt("_Cull", 0);
+                fadeMat.SetInt("_ZWrite", 0);
+                fadeMat.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+            }
+            var old = RenderTexture.active;
+            RenderTexture.active = dst;
+            GL.PushMatrix();
+            GL.LoadOrtho();
+            fadeMat.SetPass(0);
+            GL.Begin(GL.QUADS);
+            GL.Color(new Color(c.r, c.g, c.b, a));
+            GL.Vertex3(0f, 0f, 0f); GL.Vertex3(0f, 1f, 0f); GL.Vertex3(1f, 1f, 0f); GL.Vertex3(1f, 0f, 0f);
+            GL.End();
+            GL.PopMatrix();
+            RenderTexture.active = old;
+        }
+
+        // In-level cutscenes render from their own timeline camera, but the game's audio listener in VR mode is the VR camera,
+        // which stays with Lucky; the flat game's listener follows the cutscene camera instead (CameraManager.Update). During a
+        // cutscene the VR camera (and so the listener) is moved to the cutscene camera, and put back after.
+        bool listenerMoved;
+
+        void LateUpdate()
+        {
+            if (!active) return;
+            var m = CameraMotor.Instance;
+            var vr = m != null ? m.MyCamera : null;
+            if (vr == null || !Plugin.WantVrRig) return;
+            var game = GameCamera();
+            bool cutscene = game != null && game != vr && Playful.SuperLucky.Sequences.CutsceneSequence.HasActiveCutscene;
+            if (cutscene)
+            {
+                vr.transform.SetPositionAndRotation(game.transform.position, game.transform.rotation);
+                if (!listenerMoved) { listenerMoved = true; Plugin.Log.LogInfo("AUDIO cutscene camera " + game.name + ": the listener follows it"); }
+            }
+            else if (listenerMoved)
+            {
+                listenerMoved = false;
+                vr.transform.localPosition = Vector3.zero;
+                vr.transform.localRotation = Quaternion.identity;
+                Plugin.Log.LogInfo("AUDIO cutscene over: the listener is back on the VR camera");
+            }
+        }
 
         // ---- HUD ----
 

@@ -78,7 +78,7 @@ namespace NSLTVR
     [HarmonyPatch(typeof(CurveTrackingCamera), nameof(CurveTrackingCamera.DoMotorUpdate))]
     static class RightStickTurnPatch
     {
-        internal static float DegreesPerSecond = 90f;
+        internal static float DegreesPerSecond = 0f;
         static int logged;
 
         static void Prefix(CurveTrackingCamera __instance)

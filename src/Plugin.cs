@@ -15,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.4.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.5.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 4";
+        internal const string Version = "build 5";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -43,7 +43,7 @@ namespace NSLTVR
             forcePreset = Config.Bind("Lab", "ForcePreset", "", "Lab only: put the game on this graphics preset at start (graphics_low, graphics_medium, ...). Empty leaves your settings alone.");
             ipdScale = Config.Bind("Lab", "IpdOverride", 0f, "0 uses the game's own camera scale (zone IPDScale). Above 0, use this scale instead.");
             autoStart = Config.Bind("VR", "AutoStart", true, "Start VR by itself once the game is running.");
-            turnSpeed = Config.Bind("VR", "TurnSpeed", 90f, "Right stick turns the camera around Lucky, in degrees a second at full tilt. 0 is off.");
+            turnSpeed = Config.Bind("VR", "RightStickTurn", 0f, "Right stick turns the camera around Lucky, in degrees a second at full tilt. 0 is off (default): the VR camera was not made to turn and pulled far away when it did (build 4).");
             CameraRig = Config.Bind("VR", "CameraRig", "VR", "VR: the camera rig left over from Lucky's Tale VR. Flat: the game's normal camera. Read at game start.");
             resolution = Config.Bind("VR", "Resolution", 1.0f, "Eye size as a share of what the headset asks for. 1 is 100%. Used from the next start.");
             bloomOff = Config.Bind("Picture", "BloomOff", true, "Turn off the game's bloom and god rays, which look different in each eye.");
@@ -364,6 +364,44 @@ namespace NSLTVR
             var go = o as GameObject;
             if (go != null) { go.SetActive(false); Plugin.Log.LogInfo("HOOK kept " + go.name + " switched off instead of destroying it"); }
             else if (o != null) UnityEngine.Object.Destroy(o);
+        }
+    }
+}
+
+namespace NSLTVR
+{
+    // In-level cutscenes call CameraManager.DisableMainCamera, which (once a flat camera exists) switches the whole camera
+    // rig off. Since build 2 keeps the flat rig, that also switched off the VR camera, which carries the game's audio
+    // listener in VR mode: cutscene sound went wrong (Steve, build 4, meeting the cat). In VR only the VR and HUD cameras
+    // stop drawing; the rig and its listener stay on, and the mod moves the listener to the cutscene camera (XrRig.LateUpdate).
+    [HarmonyPatch(typeof(CameraManager), nameof(CameraManager.DisableMainCamera))]
+    static class CutsceneDisablePatch
+    {
+        static bool Prefix(CameraManager __instance)
+        {
+            if (!GameConfiguration.InVrCameraMode()) return true;
+            SetCameras(__instance, false);
+            return false;
+        }
+
+        internal static void SetCameras(CameraManager cm, bool on)
+        {
+            var vr = cm.VRCamera != null ? cm.VRCamera.GetComponent<Camera>() : null;
+            var hud = cm.HudCamera != null ? cm.HudCamera.GetComponent<Camera>() : null;
+            if (vr != null) vr.enabled = on;
+            if (hud != null) hud.enabled = on;
+            Plugin.Log.LogInfo("HOOK CameraManager." + (on ? "EnableMainCamera" : "DisableMainCamera") + " in VR: VR and HUD cameras " + (on ? "drawing again" : "paused") + ", rig and audio listener kept on");
+        }
+    }
+
+    [HarmonyPatch(typeof(CameraManager), nameof(CameraManager.EnableMainCamera))]
+    static class CutsceneEnablePatch
+    {
+        static bool Prefix(CameraManager __instance)
+        {
+            if (!GameConfiguration.InVrCameraMode()) return true;
+            CutsceneDisablePatch.SetCameras(__instance, true);
+            return false;
         }
     }
 }
