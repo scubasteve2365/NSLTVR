@@ -44,6 +44,48 @@ namespace NSLTVR
             Plugin.Log.LogInfo("GAMESET lab preset " + p + " applied ([Lab] ForcePreset)");
         }
 
+        // Settings buttons (standards Phase 2 items 5 and 6). Game settings only, never the mod's HUD or menu placement.
+        // Baseline: what the mod's first run gives (VSync off, no frame cap, a 1920x1080 window, physics at 60, SSAO off,
+        // bloom and god rays off); the player's quality preset is kept. Best performance: the game's Low preset with the
+        // texture quality kept (textures cost memory, not frame rate), MSAA off, then the baseline items.
+        internal static string LoadSettings(bool best)
+        {
+            var gs = GraphicsSettings.Instance;
+            if (gs == null) return "the game's settings are not loaded yet";
+            string before = Describe(gs);
+            if (best)
+            {
+                var tex = gs.TextureQualitySetting;
+                gs.SetPreset(GraphicsSettings.Preset.graphics_low);
+                gs.TextureQualitySetting = tex;
+                gs.Antialiasing = 0;
+                gs.Shadows = ShadowQuality.HardOnly;
+                gs.EffectQualitySetting = GraphicsSettings.EffectQuality.Low;
+            }
+            gs.VSyncEnabled = false;
+            gs.TargetVSyncFPSSetting = GraphicsSettings.TargetVSyncFPS.Unlocked;
+            gs.TargetPhysicsStepSetting = GraphicsSettings.TargetPhysicsStep.SixtyHz;
+            gs.FullScreenSetting = GraphicsSettings.FullScreen.Off;
+            gs.Resolution = new GraphicsSettings.SResolution { Width = 1920, Height = 1080 };
+            gs.AmbientOcclusionQuality = GraphicsSettings.SSAOQuality.Off;
+            if (best) gs.CurrentPreset = gs.MatchToPreset();
+            gs.ApplyAllSettings(false);
+            gs.Save();
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = -1;
+            string after = Describe(gs);
+            Plugin.Log.LogInfo("GAMESET " + (best ? "Load best VR performance" : "Load VR baseline") + ": before " + before + "; after " + after + "; bloom and god rays off (mod); saved to the game's settings file");
+            lastLine = "";
+            return after;
+        }
+
+        static string Describe(GraphicsSettings gs)
+        {
+            return string.Format("preset {0}, {1}x{2} fullscreen {3}, VSync {4}, target {5}, physics {6}, MSAA {7}, effects {8}, shadows {9} {10} cascades {11}, SSAO {12}, textures {13}, soft particles {14}",
+                gs.CurrentPreset, gs.Resolution.Width, gs.Resolution.Height, gs.FullScreenSetting, gs.VSyncEnabled, gs.TargetVSyncFPSSetting, gs.TargetPhysicsStepSetting,
+                gs.Antialiasing, gs.EffectQualitySetting, gs.Shadows, gs.ShadowResolution, gs.ShadowCascades, gs.AmbientOcclusionQuality, gs.TextureQualitySetting, gs.SoftParticlesEnabled);
+        }
+
         [HarmonyPatch(typeof(GlobalFogControl), "Update")]
         static class FogPatch
         {

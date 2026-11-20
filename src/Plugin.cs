@@ -15,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.12.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.13.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 12";
+        internal const string Version = "build 13";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -162,6 +162,33 @@ namespace NSLTVR
         }
 
         static readonly string[] HudModes = { "Fixed", "FollowsHead", "Hidden" };
+        string armed, lastSettingsResult;
+        float armedUntil;
+
+        // A button that changes many game settings: the first press arms it, a second press within 4 s does it.
+        MenuUI.Row SettingsButton(string label, bool best, string help)
+        {
+            return new MenuUI.Row
+            {
+                Label = label,
+                Value = () => armed == label && Time.unscaledTime < armedUntil ? "press A again" : (lastSettingsResult == label ? "done" : ""),
+                Press = () =>
+                {
+                    if (armed != label || Time.unscaledTime >= armedUntil) { armed = label; armedUntil = Time.unscaledTime + 4f; Log.LogInfo("MENU " + label + " armed"); return; }
+                    armed = null;
+                    LoadGameSettings(best);
+                    lastSettingsResult = label;
+                },
+                Help = () => armed == label && Time.unscaledTime < armedUntil ? "Press A again to change the game's settings. It cancels itself after 4 seconds." : help,
+            };
+        }
+
+        void LoadGameSettings(bool best)
+        {
+            bloomOff.Value = true;
+            PushSettings();
+            Effects.LoadSettings(best);
+        }
         static readonly string[] PictureValues = { "Auto", "Steady", "Panel" }, ClickNames = { "Off", "Low", "Medium", "High" };
         static readonly string[] HudModeNames = { "Fixed", "Follows head", "Hidden" };
 
@@ -189,6 +216,10 @@ namespace NSLTVR
             });
             general.Rows.Add(new MenuUI.Row { Label = "Click sounds", Value = () => ClickNames[Mathf.Clamp(clickVolume.Value, 0, 3)],
                 Change = dir => { clickVolume.Value = Mathf.Clamp(clickVolume.Value + dir, 0, 3); Log.LogInfo("MENU click sounds " + clickVolume.Value); }, Help = () => "How loud this menu's clicks are, down to Off." });
+            general.Rows.Add(SettingsButton("Load VR baseline", false,
+                "Puts the game's own display settings back to what this mod starts with: VSync off, no frame cap, a 1920x1080 window, physics at 60, ambient occlusion, bloom and god rays off. Your quality preset stays. Press twice."));
+            general.Rows.Add(SettingsButton("Load best VR performance", true,
+                "Sets the game's graphics for the highest frame rate: the Low preset with your texture quality kept, anti-aliasing off, simple shadows, low effects, plus everything in Load VR baseline. Press twice."));
             general.Rows.Add(new MenuUI.Row { Label = "Close", Press = () => Menu.Close(), Help = () => "Close the menu. B, Insert or holding both sticks also closes it." });
 
             var hud = new MenuUI.Tab { Name = "HUD" };
@@ -277,6 +308,7 @@ namespace NSLTVR
                 case "menu": Menu.LabKey(a.Length > 1 ? a[1] : "open"); break;
                 case "speedlog": Speed.Begin(a.Length > 1 ? F(a[1]) : 5f); break;
                 case "gfx": Probes.Graphics(); break;
+                case "settings": LoadGameSettings(a.Length > 1 && a[1] == "best"); break;
                 case "picture": picture.Value = a[1] == "steady" ? "Steady" : a[1] == "panel" ? "Panel" : "Auto"; PushSettings(); Log.LogInfo("PICTURE set " + picture.Value); break;
                 case "dump": Rig.Dump(a.Length > 1 ? a[1] : "dump"); break;
                 case "pink": Rig.Pink(int.Parse(a[1])); break;
