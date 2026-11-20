@@ -381,10 +381,30 @@ namespace NSLTVR
         internal Camera GameCamera()
         {
             var m = CameraMotor.Instance;
+            var cine = CinematicCamera();
+            if (cine != null) return cine;
             if (m != null && m.MyCamera != null && m.MyCamera.isActiveAndEnabled) return m.MyCamera;
             // Cutscene cameras inside levels carry the game's post-processing; the title and video cameras do not.
             var main = Camera.main;
             return main != null && main.isActiveAndEnabled && main.GetComponent<Playful.SuperLucky.PostProcess.PostProcess>() != null ? main : null;
+        }
+
+        // Level intros and some cutscenes are Cinemachine shots: they move the flat camera (kept running, drawing nothing)
+        // while the VR camera stays with Lucky. While a cutscene runs and the brain shows anything but the gameplay
+        // free-look camera, the eyes are drawn from the flat camera's pose.
+        bool cineLogged;
+        Camera CinematicCamera()
+        {
+            var cm = CameraManager.Instance;
+            if (cm == null || !Plugin.WantVrRig || !Playful.SuperLucky.Sequences.CutsceneSequence.HasActiveCutscene) { if (cineLogged) { cineLogged = false; Plugin.Log.LogInfo("CINEMATIC over: back to the VR camera"); } return null; }
+            var brain = cm.CinemachineBrain;
+            if (brain == null || !brain.isActiveAndEnabled) return null;
+            var vcam = brain.ActiveVirtualCamera;
+            if (vcam == null || ReferenceEquals(vcam, cm.CinemachineFreeLook)) return null;
+            var flat = cm.FlatScreenCamera != null ? cm.FlatScreenCamera.GetComponent<Camera>() : null;
+            if (flat == null || !flat.gameObject.activeInHierarchy) return null;
+            if (!cineLogged) { cineLogged = true; Plugin.Log.LogInfo("CINEMATIC cutscene shot " + vcam.Name + ": eyes follow the game's cutscene camera"); }
+            return flat;
         }
 
         void Origin(Camera cam, out Vector3 pos, out Quaternion rot, out float scale)
@@ -531,7 +551,8 @@ namespace NSLTVR
         Color fadeColor = Color.black;
         float fadeA;
         Material fadeMat;
-        bool fadeLogged;
+        bool fadeLogged, stuckLogged;
+        float blackSince = -1f;
 
         void ReadFade()
         {
@@ -542,6 +563,16 @@ namespace NSLTVR
             if (img == null || !img.isActiveAndEnabled) return;
             fadeColor = img.color;
             fadeA = img.color.a;
+            // Safety: never keep the view black while Lucky can be controlled (a fade left on by a VR-only path must not
+            // blind the player). Logged once with the fade's holders.
+            var p = Playful.SuperLucky.Gameplay.Player.PlayerController.Instance;
+            bool playable = p != null && p.Input != null && p.Input.InputEnabled && !Playful.SuperLucky.Sequences.CutsceneSequence.HasActiveCutscene;
+            if (fadeA > 0.95f && playable) { if (blackSince < 0f) blackSince = Time.realtimeSinceStartup; } else blackSince = -1f;
+            if (blackSince > 0f && Time.realtimeSinceStartup - blackSince > 3f)
+            {
+                if (!stuckLogged) { stuckLogged = true; Plugin.Log.LogWarning("FADE stuck black for 3 s while Lucky is playable: not drawn over the eyes"); try { g.LogLocks(); } catch (Exception) { } }
+                fadeA = 0f;
+            }
             if (!fadeLogged && fadeA > 0.5f) { fadeLogged = true; Plugin.Log.LogInfo("FADE the game's fade image is shown over the eyes (alpha " + fadeA.ToString("F2", CultureInfo.InvariantCulture) + ")"); }
         }
 

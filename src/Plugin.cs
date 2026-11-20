@@ -15,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.5.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.6.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 5";
+        internal const string Version = "build 6";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -362,7 +362,18 @@ namespace NSLTVR
         static void Hide(UnityEngine.Object o)
         {
             var go = o as GameObject;
-            if (go != null) { go.SetActive(false); Plugin.Log.LogInfo("HOOK kept " + go.name + " switched off instead of destroying it"); }
+            if (go != null && go.GetComponent<Camera>() != null && go.GetComponent<Cinemachine.CinemachineBrain>() != null)
+            {
+                // The flat camera carries the CinemachineBrain that level intros and cutscene blends run through; the game
+                // waits for them (no control at level start, fades that never cleared, pause menu blocked: Steve, build 5).
+                // It stays active so the brain keeps working, but draws nothing and its other scripts are off.
+                go.SetActive(true);
+                go.GetComponent<Camera>().enabled = false;
+                foreach (var b in go.GetComponents<Behaviour>())
+                    if (!(b is Cinemachine.CinemachineBrain) && !(b is Camera)) b.enabled = false;
+                Plugin.Log.LogInfo("HOOK kept " + go.name + " running for its CinemachineBrain, drawing nothing");
+            }
+            else if (go != null) { go.SetActive(false); Plugin.Log.LogInfo("HOOK kept " + go.name + " switched off instead of destroying it"); }
             else if (o != null) UnityEngine.Object.Destroy(o);
         }
     }
