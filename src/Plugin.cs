@@ -15,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.8.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.9.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 8";
+        internal const string Version = "build 9";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -76,7 +76,9 @@ namespace NSLTVR
             Speed = gameObject.AddComponent<SpeedLog>();
             Speed.Rig = Rig;
             SceneManager.sceneLoaded += (scene, mode) => Log.LogInfo("SCENE loaded " + scene.name + " mode " + mode + " frame " + Time.frameCount);
-            new Harmony("com.scubasteve2365.nsltvr").PatchAll(typeof(Plugin).Assembly);
+            var harmony = new Harmony("com.scubasteve2365.nsltvr");
+            harmony.PatchAll(typeof(Plugin).Assembly);
+            try { FlatCameraGuard.Apply(harmony); } catch (Exception e) { Log.LogError("flat-camera guard failed: " + e); }
             // Game errors (exceptions in its coroutines) only reach Unity's own log, which RigA's log fetch cannot read.
             // The first 30 distinct ones are copied here with their stack.
             Application.logMessageReceived += (msg, stack, type) =>
@@ -435,6 +437,47 @@ namespace NSLTVR
         {
             if (!GameConfiguration.InVrCameraMode()) return true;
             CutsceneDisablePatch.SetCameras(__instance, true);
+            return false;
+        }
+    }
+}
+
+namespace NSLTVR
+{
+    // Root cause of the stuck fades (Steve's build 8 log, GAME Exception lines): CutsceneSequence.CopyCameraSettings calls
+    // CameraManager.GetFlatScreenCamera().RemoveAllInputRotation(), and GetFlatScreenCamera() is null with the VR rig (the
+    // flat motor is never added). The exception killed the cutscene's camera-cut coroutine after it had faded out and before
+    // it faded back in. In VR this does the same work without the flat-camera call, and still points the Cinemachine brain
+    // at the cutscene's shot so the headset sees it (the flat game does that only when the flat motor exists).
+    [HarmonyPatch(typeof(Playful.SuperLucky.Sequences.CutsceneSequence), "CopyCameraSettings")]
+    static class CopyCameraSettingsPatch
+    {
+        static int calls;
+        static bool Prefix(Playful.SuperLucky.Sequences.CutsceneSequence __instance)
+        {
+            if (!GameConfiguration.InVrCameraMode()) return true;
+            var t = Traverse.Create(__instance);
+            if (t.Field("_isEnding").GetValue<bool>()) return false;
+            var cm = CameraManager.Instance;
+            if (cm == null) return false;
+            cm.CameraEnabled = false;
+            var list = t.Field("_cinematicCamerasToCopy").GetValue() as System.Collections.IList;
+            int index = t.Field("_currentCinematicCameraIndex").GetValue<int>();
+            if (list == null || index >= list.Count) return false;
+            var entry = Traverse.Create(list[index]);
+            var cinematic = entry.Field("CinematicCameraToCopy").GetValue<Camera>();
+            t.Field("_currentCinematicCamera").SetValue(cinematic);
+            if (cm.IsCinemachineActive)
+            {
+                cm.FreeLookCameraModifier.ResetPositionOnSpline();
+                var vcam = entry.Field("VirtualCamera").GetValue<Cinemachine.CinemachineVirtualCamera>();
+                if (cinematic != null && vcam != null)
+                {
+                    vcam.m_Lens.FieldOfView = cinematic.fieldOfView;
+                    Cinemachine.CinemachineBrain.SoloCamera = vcam;
+                }
+            }
+            if (calls++ < 5) Plugin.Log.LogInfo("HOOK CutsceneSequence.CopyCameraSettings in VR (" + Probes.PathOf(__instance.transform) + "): shot " + (cinematic != null ? cinematic.name : "none"));
             return false;
         }
     }
