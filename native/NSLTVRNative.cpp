@@ -298,7 +298,7 @@ static bool StartXr() {
     if (!GetFn("xrCreateInstance", createInstance)) return false;
     const char* exts[] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
-    strcpy_s(ici.applicationInfo.applicationName, "NSLTVR");
+    strcpy_s(ici.applicationInfo.applicationName, "New Super Lucky's Tale VR");  // the name SteamVR shows (Steve, 2026-11-20)
     ici.applicationInfo.applicationVersion = 1;
     strcpy_s(ici.applicationInfo.engineName, "Unity 2017.4");
     ici.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);

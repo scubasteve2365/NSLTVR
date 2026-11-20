@@ -15,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.2.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.3.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 2";
+        internal const string Version = "build 3";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -93,6 +93,7 @@ namespace NSLTVR
                 triedAutoStart = true;
                 Rig.Begin();
             }
+            StickDropoutPatch.Tick();
             if (Time.frameCount >= nextSlowCheck)
             {
                 nextSlowCheck = Time.frameCount + 120;
@@ -189,6 +190,23 @@ namespace NSLTVR
 
         string NextSize() { var r = Rig.Resolution; Rig.Resolution = resolution.Value; var s = Rig.NextLaunchSize(); Rig.Resolution = r; return s; }
 
+        // Lab: Lucky's position, speed and the input the game reads, every 0.1 s.
+        System.Collections.IEnumerator Track(float seconds)
+        {
+            float end = Time.realtimeSinceStartup + seconds;
+            var wait = new WaitForSecondsRealtime(0.1f);
+            while (Time.realtimeSinceStartup < end)
+            {
+                var p = Playful.SuperLucky.Gameplay.Player.PlayerController.Instance;
+                if (p != null)
+                    Log.LogInfo(string.Format(CultureInfo.InvariantCulture, "TRACK pos ({0:F2},{1:F2}) vel ({2:F2},{3:F2}) raw ({4:F2},{5:F2}) world ({6:F2},{7:F2}) enabled {8} state {9} {10} cam yaw {11:F1} volatility {12:F3}",
+                        p.transform.position.x, p.transform.position.z, p.Velocity.x, p.Velocity.z, p.Input.RawInput.x, p.Input.RawInput.y,
+                        p.Input.WorldSpaceInput.x, p.Input.WorldSpaceInput.z, p.Input.InputEnabled, p.ControllerState, p.MoveState,
+                        CameraManager.Instance != null && CameraManager.Instance.GetCameraGameObject() != null ? CameraManager.Instance.GetCameraGameObject().transform.eulerAngles.y : -1f, p.Input.InputVolatility));
+                yield return wait;
+            }
+        }
+
         // ---- lab commands ----
 
         void ReadCommands()
@@ -230,6 +248,9 @@ namespace NSLTVR
                 case "picture": Rig.PictureMode = a[1] == "steady" ? 1 : a[1] == "panel" ? 2 : 0; Log.LogInfo("PICTURE lab override " + a[1]); break;
                 case "dump": Rig.Dump(a.Length > 1 ? a[1] : "dump"); break;
                 case "pink": Rig.Pink(int.Parse(a[1])); break;
+                case "canvases": Probes.Canvases(); break;
+                case "track": StartCoroutine(Track(a.Length > 1 ? F(a[1]) : 3f)); break;
+                case "stickfill": StickDropoutPatch.On = a[1] == "1"; Log.LogInfo("stick fill " + StickDropoutPatch.On); break;
                 case "hud": Rig.HudMode = a[1] == "head" ? 1 : a[1] == "hidden" ? 2 : 0; break;
                 default: Log.LogWarning("unknown command " + a[0]); break;
             }

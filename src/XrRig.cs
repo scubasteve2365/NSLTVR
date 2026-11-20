@@ -310,7 +310,9 @@ namespace NSLTVR
                 GL.IssuePluginEvent(renderEvent, EventEyeBegin);
                 bool world = RenderEyes(vi);
                 int flags = vi.viewsValid != 0 ? FlagViewsValid : 0;
-                bool hud = UpdateHud(world);
+                bool hud = false;
+                try { hud = UpdateHud(world); }
+                catch (Exception e) { if (hudErrors++ < 5) Plugin.Log.LogError("HUD update failed: " + e); }
                 if (hud) flags |= FlagHud;
                 bool menuOpen = Menu != null && Menu.IsOpen && Menu.Texture != null;
                 if (menuOpen) flags |= FlagMenu;
@@ -521,6 +523,7 @@ namespace NSLTVR
         // With no game camera (title, loading, videos) every camera that draws to the window is drawn into it instead, opaque,
         // and it shows as a big screen in front of the player.
         bool screenMode;
+        int hudErrors;
         int hudLogFrame;
 
         bool UpdateHud(bool world)
@@ -535,9 +538,7 @@ namespace NSLTVR
                 {
                     hudClear = hudCam.clearFlags;
                     hudBg = hudCam.backgroundColor;
-                    hudCam.targetTexture = hudRt;
-                    hudCam.clearFlags = CameraClearFlags.SolidColor;
-                    hudCam.backgroundColor = new Color(0f, 0f, 0f, 0f);
+                    hudCam.targetTexture = hudRt;  // keeps its own depth-only clear: the mod's UI camera clears the texture first
                     Plugin.Log.LogInfo("HUD the game's HUD camera " + Probes.PathOf(hudCam.transform) + " now draws into the HUD panel (" + HudW + "x" + HudH + ")");
                 }
             }
@@ -547,13 +548,93 @@ namespace NSLTVR
             if (screenMode != wasScreen) Plugin.Log.LogInfo(screenMode ? "SCREEN no game camera: the game's screen shows on a panel" : "SCREEN game camera back: HUD panel");
             if (screenMode)
             {
+                ReleaseUiCams();
                 DrawScreen();
                 Flip(hudRt, hudOut, false);
                 return true;
             }
-            if (HudMode == 2 || hudCam == null || !hudCam.isActiveAndEnabled) return false;
+            bool hudOn = hudCam != null && hudCam.isActiveAndEnabled;
+            if (!DrawGameUi(hudOn && HudMode != 2)) return false;
             Flip(hudRt, hudOut, false);
             return true;
+        }
+
+        // The game's pause menu (a 3D book seen by its own UI camera, UIPawsMenu/CameraRoot/Camera, plus an overlay canvas)
+        // and its dialogue boxes (an overlay canvas) draw straight to the window, so they never reached the headset
+        // (Steve, build 2). UI-only cameras are drawn into the HUD texture after the HUD, and overlay canvases on the UI layer
+        // are moved onto the mod's own UI camera, which draws into the same texture.
+        Camera uiCam;
+        int uiScanFrame, uiLayerMask = -1;
+        readonly System.Collections.Generic.List<Canvas> movedCanvases = new System.Collections.Generic.List<Canvas>();
+        readonly System.Collections.Generic.HashSet<int> loggedUiCams = new System.Collections.Generic.HashSet<int>();
+
+        // Everything renders inside the frame, in camera depth order, into the HUD texture: the mod's UI camera first
+        // (clears to transparent and draws the moved overlay canvases), then the game's UI-only cameras, then the HUD camera
+        // (which only clears depth). Rendering the pause menu's camera by hand at the end of the frame drew its page text
+        // upside down (RigB, 2026-11-20), so the game's cameras are retargeted instead of rendered by the mod.
+        readonly System.Collections.Generic.List<Camera> uiCams = new System.Collections.Generic.List<Camera>();
+
+        bool DrawGameUi(bool hudShown)
+        {
+            if (uiLayerMask < 0) uiLayerMask = LayerMask.GetMask("UI", "HUD");
+            if (uiCam == null)
+            {
+                var go = new GameObject("NSLTVR UI camera");
+                DontDestroyOnLoad(go);
+                go.transform.position = new Vector3(0f, 60000f, -10f);
+                uiCam = go.AddComponent<Camera>();
+                uiCam.cullingMask = LayerMask.GetMask("UI");
+                uiCam.clearFlags = CameraClearFlags.SolidColor;
+                uiCam.backgroundColor = new Color(0f, 0f, 0f, 0f);
+                uiCam.depth = -999f;
+                uiCam.nearClipPlane = 0.1f;
+                uiCam.farClipPlane = 1000f;
+                uiCam.targetTexture = hudRt;
+            }
+            uiCam.enabled = true;
+            var game = GameCamera();
+            if (Time.frameCount >= uiScanFrame)
+            {
+                uiScanFrame = Time.frameCount + 60;
+                foreach (var c in FindObjectsOfType<Canvas>())
+                {
+                    if (!c.isRootCanvas || c.renderMode != RenderMode.ScreenSpaceOverlay || c.gameObject.layer != 5 || movedCanvases.Contains(c)) continue;
+                    c.renderMode = RenderMode.ScreenSpaceCamera;
+                    c.worldCamera = uiCam;
+                    c.planeDistance = 10f;
+                    movedCanvases.Add(c);
+                    Plugin.Log.LogInfo("UI overlay canvas " + Probes.PathOf(c.transform) + " now draws into the HUD panel");
+                }
+                movedCanvases.RemoveAll(c => c == null);
+                float gameDepth = game != null ? game.depth : -1000f;
+                foreach (var c in Resources.FindObjectsOfTypeAll<Camera>())
+                {
+                    if (c == null || !c.gameObject.scene.IsValid() || c == game || c == hudCam || c == uiCam || uiCams.Contains(c) || c.targetTexture != null) continue;
+                    if (c.cullingMask == 0 || (c.cullingMask & ~uiLayerMask) != 0 || c.depth < gameDepth || c.name.StartsWith("NSLTVR", StringComparison.Ordinal)) continue;
+                    c.targetTexture = hudRt;
+                    uiCams.Add(c);
+                    Plugin.Log.LogInfo("UI camera " + Probes.PathOf(c.transform) + " (depth " + c.depth + ", mask 0x" + c.cullingMask.ToString("X") + ") now draws into the HUD panel");
+                }
+                uiCams.RemoveAll(c => c == null);
+            }
+            bool any = uiCams.Any(c => c != null && c.isActiveAndEnabled) || movedCanvases.Any(c => c != null && c.isActiveAndEnabled);
+            return any || hudShown;
+        }
+
+        // Back to the screen panel (title, loading): the game's UI cameras draw to the window again, so the screen copy has them.
+        void ReleaseUiCams()
+        {
+            foreach (var c in uiCams) if (c != null) c.targetTexture = null;
+            uiCams.Clear();
+            if (uiCam != null) uiCam.enabled = false;
+        }
+
+        void ClearHud()
+        {
+            var old = RenderTexture.active;
+            RenderTexture.active = hudRt;
+            GL.Clear(true, true, new Color(0f, 0f, 0f, 0f));
+            RenderTexture.active = old;
         }
 
         void DrawScreen()
@@ -568,6 +649,12 @@ namespace NSLTVR
                 c.targetTexture = hudRt;
                 c.Render();
                 c.targetTexture = null;
+            }
+            if (uiCam != null && movedCanvases.Any(c => c != null && c.isActiveAndEnabled))
+            {
+                uiCam.clearFlags = CameraClearFlags.Nothing;  // on top of the screen copy
+                uiCam.Render();
+                uiCam.clearFlags = CameraClearFlags.SolidColor;
             }
         }
 

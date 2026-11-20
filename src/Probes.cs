@@ -93,5 +93,15 @@ namespace NSLTVR
                 gs.CurrentPreset, gs.VSyncEnabled, gs.TargetVSyncFPSSetting, gs.TargetPhysicsStepSetting, gs.Antialiasing, gs.EffectQualitySetting, gs.Shadows, gs.ShadowResolution,
                 gs.AmbientOcclusionQuality, gs.TextureQualitySetting, gs.SoftParticlesEnabled));
         }
+            internal static void Canvases()
+        {
+            foreach (var c in Object.FindObjectsOfType<Canvas>())
+            {
+                if (!c.isRootCanvas) continue;
+                Plugin.Log.LogInfo(string.Format("CANVAS {0} active {1} mode {2} camera {3} layer {4} sort {5} plane {6:F2} scale {7}",
+                    PathOf(c.transform), c.isActiveAndEnabled, c.renderMode, c.worldCamera != null ? PathOf(c.worldCamera.transform) + " mask 0x" + c.worldCamera.cullingMask.ToString("X8") : "none",
+                    LayerMask.LayerToName(c.gameObject.layer), c.sortingOrder, c.planeDistance, V(c.transform.lossyScale)));
+            }
+        }
     }
 }
