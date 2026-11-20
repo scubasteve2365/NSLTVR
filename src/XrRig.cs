@@ -49,7 +49,7 @@ namespace NSLTVR
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         struct Stats
         {
-            public uint submitted, repeats, skipped, replaced;
+            public uint submitted, repeats, skipped, replaced, acquireFail;
             public float waitAvg, waitMax, endAvg, endMax, copyAvg, copyMax, gpuEyeAvg, gpuEyeMax, gpuFrameAvg, gpuFrameMax;
         }
 
@@ -329,10 +329,10 @@ namespace NSLTVR
                     Plugin.Log.LogInfo(string.Format(CultureInfo.InvariantCulture,
                         "PERF {0:F1} fps (headset {1:F1} Hz, state {2}); frame avg {3:F2} max {4:F2} ms; mod eyes+HUD CPU avg {5:F2} max {6:F2} ms; cap wait avg {7:F2} max {8:F2} ms; " +
                         "GPU eyes avg {9:F2} max {10:F2} ms, GPU frame avg {11:F2} max {12:F2} ms; XR thread: wait avg {13:F2} max {14:F2}, end avg {15:F2} max {16:F2}, copy avg {17:F2} max {18:F2} ms; " +
-                        "headset frames {19}, repeated {20}, skipped (no free slot) {21}, dropped as older {22}; eye {23}x{24}, rig {25}",
+                        "headset frames {19}, repeated {20}, skipped (no free slot) {21}, dropped as older {22}, handover failed {26}; eye {23}x{24}, rig {25}",
                         (Time.frameCount - framesAtStat) / span, vi.periodMs > 0f ? 1000f / vi.periodMs : 0f, vi.sessionState, n > 0 ? dtSum / n : 0f, dtMax,
                         n > 0 ? cpuSum / n : 0f, cpuMax, n > 0 ? capSum / n : 0f, capMax, s.gpuEyeAvg, s.gpuEyeMax, s.gpuFrameAvg, s.gpuFrameMax,
-                        s.waitAvg, s.waitMax, s.endAvg, s.endMax, s.copyAvg, s.copyMax, s.submitted, s.repeats, s.skipped, s.replaced, EyeWidth, EyeHeight, lastRig));
+                        s.waitAvg, s.waitMax, s.endAvg, s.endMax, s.copyAvg, s.copyMax, s.submitted, s.repeats, s.skipped, s.replaced, EyeWidth, EyeHeight, lastRig, s.acquireFail));
                     nextStat = now + 5f;
                     framesAtStat = Time.frameCount;
                     cpuSum = cpuMax = capSum = capMax = dtSum = dtMax = 0f;

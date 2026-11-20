@@ -61,7 +61,7 @@ struct FrameMeta {
     float menuPose[9];
 };
 struct Stats {
-    unsigned int submitted, repeats, skipped, replaced;
+    unsigned int submitted, repeats, skipped, replaced, acquireFail;
     float waitAvg, waitMax, endAvg, endMax, copyAvg, copyMax, gpuEyeAvg, gpuEyeMax, gpuFrameAvg, gpuFrameMax;
 };
 #pragma pack(pop)
@@ -654,7 +654,7 @@ static std::mutex g_timeLock;
 static XrTime g_lastDisplayTime;
 static XrDuration g_lastPeriod;
 static std::mutex g_statLock;
-static unsigned int s_submitted, s_repeats, s_skipped, s_replaced;
+static unsigned int s_submitted, s_repeats, s_skipped, s_replaced, s_acquireFail;
 static double s_wait, s_waitMax, s_end, s_endMax, s_copy, s_copyMax, s_gpuEye, s_gpuEyeMax, s_gpuFrame, s_gpuFrameMax;
 static unsigned int s_waitN, s_copyN, s_gpuEyeN, s_gpuFrameN;
 static FrameMeta g_lastMeta;
@@ -888,7 +888,8 @@ static void DoSubmit() {
         bool ok = true;
         for (int t = 0; t < TexCount; t++) {
             if (!p.src[t]) continue;
-            if (slot->ku[t]->AcquireSync(0, 0) != S_OK) { ok = false; break; }
+            // Key 0: handed back by the XR thread. Key 1: a finished frame the XR thread dropped as older, still marked for it.
+            if (slot->ku[t]->AcquireSync(0, 0) != S_OK && slot->ku[t]->AcquireSync(1, 0) != S_OK) { ok = false; s_acquireFail++; break; }
             D3D11_TEXTURE2D_DESC d;
             p.src[t]->GetDesc(&d);
             if ((int)d.Width == g_panelW[t] && (int)d.Height == g_panelH[t]) g_ctx->CopyResource(slot->u[t], p.src[t]);
@@ -1077,13 +1078,13 @@ API float NslXR_CapWait(float reportedHz) {
 
 API void NslXR_Stats(Stats* out) {
     std::lock_guard<std::mutex> l(g_statLock);
-    out->submitted = s_submitted; out->repeats = s_repeats; out->skipped = s_skipped; out->replaced = s_replaced;
+    out->submitted = s_submitted; out->repeats = s_repeats; out->skipped = s_skipped; out->replaced = s_replaced; out->acquireFail = s_acquireFail;
     out->waitAvg = s_waitN ? (float)(s_wait / s_waitN) : 0; out->waitMax = (float)s_waitMax;
     out->endAvg = s_waitN ? (float)(s_end / s_waitN) : 0; out->endMax = (float)s_endMax;
     out->copyAvg = s_copyN ? (float)(s_copy / s_copyN) : 0; out->copyMax = (float)s_copyMax;
     out->gpuEyeAvg = s_gpuEyeN ? (float)(s_gpuEye / s_gpuEyeN) : 0; out->gpuEyeMax = (float)s_gpuEyeMax;
     out->gpuFrameAvg = s_gpuFrameN ? (float)(s_gpuFrame / s_gpuFrameN) : 0; out->gpuFrameMax = (float)s_gpuFrameMax;
-    s_submitted = s_repeats = s_skipped = s_replaced = 0;
+    s_submitted = s_repeats = s_skipped = s_replaced = s_acquireFail = 0;
     s_wait = s_waitMax = s_end = s_endMax = s_copy = s_copyMax = s_gpuEye = s_gpuEyeMax = s_gpuFrame = s_gpuFrameMax = 0;
     s_waitN = s_copyN = s_gpuEyeN = s_gpuFrameN = 0;
 }

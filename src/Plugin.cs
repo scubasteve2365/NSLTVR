@@ -99,10 +99,12 @@ namespace NSLTVR
                 Effects.LogGameSettings("check");
                 if (Rig.Running && !Speed.On) Speed.Begin(10f);
                 // The HUD and title screens are drawn for a 16:9 picture: keep the window 16:9 while VR runs.
-                if (Rig.Running && Mathf.Abs((float)Screen.width / Mathf.Max(1, Screen.height) - 16f / 9f) > 0.02f)
+                // The title screens are drawn for a 16:9 picture, and exclusive full screen changes the monitor's mode, which
+                // moves other displays (RigB's SteamVR window lives on one). While VR runs the game is a 1920x1080 window.
+                if (Rig.Running && (Screen.fullScreen || Screen.width != 1920 || Screen.height != 1080))
                 {
-                    Log.LogInfo("WINDOW " + Screen.width + "x" + Screen.height + " is not 16:9, set to 1920x1080 for the HUD panel");
-                    Screen.SetResolution(1920, 1080, Screen.fullScreen);
+                    Log.LogInfo("WINDOW " + Screen.width + "x" + Screen.height + (Screen.fullScreen ? " full screen" : " window") + ", set to a 1920x1080 window while VR runs");
+                    Screen.SetResolution(1920, 1080, false);
                 }
             }
         }
