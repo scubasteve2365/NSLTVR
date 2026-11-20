@@ -94,7 +94,7 @@ namespace NSLTVR
 
         // ---- settings, set by the plugin ----
         internal string PluginDir, ShotDir;
-        internal float Resolution = 1f, IpdOverride, WorldSize = 1f;
+        internal float Resolution = 1f, IpdOverride;
         internal Vector3 LabHead;
         internal bool Stamp;
         internal int HudMode;  // 0 Fixed, 1 Follows head, 2 Hidden
@@ -427,8 +427,6 @@ namespace NSLTVR
                 lastRig = "Flat";
             }
             if (IpdOverride > 0f) scale = IpdOverride;
-            // World size: 100% is the game's own toy scale (the zone's IPDScale); 200% makes the world look twice as big.
-            if (WorldSize > 0.01f) scale /= WorldSize;
             if (Mathf.Abs(scale - lastScale) > 0.0005f)
             {
                 lastScale = scale;

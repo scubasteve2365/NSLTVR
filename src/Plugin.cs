@@ -15,16 +15,16 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.11.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.10.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 11";
+        internal const string Version = "build 10";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
         static readonly System.Collections.Generic.HashSet<string> seenErrors = new System.Collections.Generic.HashSet<string>();
         ConfigEntry<bool> labCommands, autoStart, bloomOff;
-        ConfigEntry<float> worldSize, turnSpeed, resolution, ipdScale, hudWidth, hudX, hudY, hudDistance, menuWidth, menuX, menuY, menuDistance;
+        ConfigEntry<float> turnSpeed, resolution, ipdScale, hudWidth, hudX, hudY, hudDistance, menuWidth, menuX, menuY, menuDistance;
         ConfigEntry<string> hudMode, menuKey, forcePreset, picture;
         ConfigEntry<int> clickVolume;
         string commandFile;
@@ -47,7 +47,6 @@ namespace NSLTVR
             autoStart = Config.Bind("VR", "AutoStart", true, "Start VR by itself once the game is running.");
             turnSpeed = Config.Bind("VR", "RightStickTurn", 0f, "Right stick turns the camera around Lucky, in degrees a second at full tilt. 0 is off (default): the VR camera was not made to turn and pulled far away when it did (build 4).");
             CameraRig = Config.Bind("VR", "CameraRig", "VR", "VR: the camera rig left over from Lucky's Tale VR. Flat: the game's normal camera. Read at game start.");
-            worldSize = Config.Bind("VR", "WorldSize", 1.0f, "How big the world looks. 1 is the game's own toy scale from Lucky's Tale VR; 2 makes everything look twice as big.");
             resolution = Config.Bind("VR", "Resolution", 1.0f, "Eye size as a share of what the headset asks for. 1 is 100%. Used from the next start.");
             bloomOff = Config.Bind("Picture", "BloomOff", true, "Turn off the game's bloom and god rays, which look different in each eye.");
             hudMode = Config.Bind("HUD", "Mode", "Fixed", "Fixed: the HUD stays in place in the room. FollowsHead: it moves with your head. Hidden: no HUD.");
@@ -139,7 +138,6 @@ namespace NSLTVR
             Rig.MenuWidth = menuWidth.Value; Rig.MenuX = menuX.Value; Rig.MenuY = menuY.Value; Rig.MenuDistance = menuDistance.Value;
             Effects.BloomOff = bloomOff.Value;
             RightStickTurnPatch.DegreesPerSecond = turnSpeed.Value;
-            Rig.WorldSize = Mathf.Clamp(worldSize.Value, 0.5f, 4f);
             Rig.PictureMode = picture.Value.Equals("Steady", StringComparison.OrdinalIgnoreCase) ? 1 : picture.Value.Equals("Panel", StringComparison.OrdinalIgnoreCase) ? 2 : 0;
         }
 
@@ -172,8 +170,6 @@ namespace NSLTVR
             var general = new MenuUI.Tab { Name = "General" };
             general.Rows.Add(new MenuUI.Row { Label = "Recenter", Press = () => { Rig.Recenter(); Log.LogInfo("MENU recenter"); },
                 Help = () => "Press A to put the view, the HUD and this menu straight ahead of where you face now. Your headset's own recenter does the same." });
-            general.Rows.Add(Value("World size", worldSize, 0.1f, 0.5f, 4f, () => Mathf.RoundToInt(worldSize.Value * 100f) + "%",
-                "How big the world looks around you. 100% is the game's own toy-diorama scale, the one Lucky's Tale VR used. Higher makes Lucky and the level bigger, as if you shrank."));
             general.Rows.Add(new MenuUI.Row
             {
                 Label = "Resolution",
