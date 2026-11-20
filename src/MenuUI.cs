@@ -60,7 +60,7 @@ namespace NSLTVR
         Image[] tabLine, rowBar;
         TextMeshProUGUI help, footer, version;
         int tab, selected;
-        float bothSince = -1f, nextRepeat;
+        float bothSince = -1f, nextRepeat, closedAt;
         bool bothFired, waitRelease, aWas, bWas, tabLWas, tabRWas, dirty;
         int heldX, heldY;
 
@@ -245,13 +245,14 @@ namespace NSLTVR
             IsOpen = false;
             if (root != null) root.SetActive(false);
             waitRelease = true;  // the game stays deaf until every button is up
+            closedAt = Time.realtimeSinceStartup;
             Plugin.Log.LogInfo("MENU close");
             if (Closed != null) Closed();
         }
 
         static void SetGameInput(bool on)
         {
-            try { InControl.InputManager.Enabled = on; }
+            try { InControl.InputManager.Enabled = on; Plugin.Log.LogInfo("MENU game input " + (on ? "on" : "off") + " (InControl enabled " + InControl.InputManager.Enabled + ")"); }
             catch (Exception e) { Plugin.Log.LogWarning("menu: could not switch game input: " + e.Message); }
         }
 
@@ -313,10 +314,17 @@ namespace NSLTVR
 
             if (waitRelease)
             {
-                if (btn == 0 && !lt && !rtrig && Mathf.Abs(lx) < 8000 && Mathf.Abs(ly) < 8000 && !Input.anyKey)
+                // Nothing reaches the game until the pad's buttons and the menu's keys are up. Only those: Unity's
+                // Input.anyKey also counts joystick buttons from other devices, which kept the game deaf on Steve's PC (build 1).
+                bool keys = Input.GetKey(MenuKey) || Input.GetKey(KeyCode.Return) || Input.GetKey(KeyCode.Escape) || Input.GetKey(KeyCode.Backspace)
+                    || Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow) || Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow)
+                    || Input.GetKey(KeyCode.PageUp) || Input.GetKey(KeyCode.PageDown);
+                bool idle = btn == 0 && !lt && !rtrig && !keys;
+                if (idle || now - closedAt > 2f)
                 {
                     waitRelease = false;
                     SetGameInput(true);
+                    Plugin.Log.LogInfo("MENU game input back on (" + (idle ? "every button up" : "after 2 s, buttons still reported held: 0x" + btn.ToString("X4")) + ")");
                 }
                 return;
             }

@@ -39,7 +39,7 @@
 enum State { StateOff = 0, StateStarting = 1, StateReady = 2, StateFailed = 3 };
 enum Event { EventInit = 1, EventSubmit = 2, EventShutdown = 3, EventEyeBegin = 5 };
 enum Tex { TexL = 0, TexR = 1, TexHud = 2, TexMenu = 3, TexCount = 4 };
-enum Flags { FlagHud = 1, FlagMenu = 2, FlagSteady = 4, FlagViewsValid = 8 };
+enum Flags { FlagHud = 1, FlagMenu = 2, FlagSteady = 4, FlagViewsValid = 8, FlagHudOpaque = 16 };
 
 #pragma pack(push, 4)
 struct EyeView { float px, py, pz, qx, qy, qz, qw, left, right, up, down; };
@@ -504,7 +504,7 @@ static bool CreateSwap(Swap& s, int w, int h) {
 static const char* g_panelShader = R"(
 Texture2D src : register(t0);
 SamplerState linearClamp : register(s0);
-cbuffer Panel : register(b0) { float4 corner[4]; };
+cbuffer Panel : register(b0) { float4 corner[4]; float4 opts; };  // opts.x 1 = opaque
 void vs(uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEXCOORD0) {
     uv = float2(id & 1, id >> 1);
     pos = corner[id];
@@ -512,7 +512,9 @@ void vs(uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEX
 float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     float2 edge = min(uv, 1 - uv) / max(fwidth(uv), 0.000001);
     float4 c = src.Sample(linearClamp, uv);
-    return float4(c.rgb, c.a * saturate(min(edge.x, edge.y)));
+    if (opts.y > 0.5) return float4(1, 0, 1, 1);
+    float a = opts.x > 0.5 ? 1 : c.a;
+    return float4(c.rgb, a * saturate(min(edge.x, edge.y)));
 }
 )";
 static ID3D11VertexShader* g_panelVs;
@@ -538,7 +540,7 @@ static bool CreatePanelPass() {
     vsb->Release();
     psb->Release();
     D3D11_BUFFER_DESC cb{};
-    cb.ByteWidth = 64;
+    cb.ByteWidth = 80;
     cb.Usage = D3D11_USAGE_DEFAULT;
     cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     g_xdev->CreateBuffer(&cb, nullptr, &g_panelCb);
@@ -565,6 +567,7 @@ static bool CreatePanelPass() {
     return g_panelVs && g_panelPs && g_panelCb && g_linear && g_noCull && g_blend;
 }
 static bool g_panelPassOk;
+static volatile LONG g_panelPink;
 
 struct V3 { float x, y, z; };
 static V3 Rotate(const XrQuaternionf& q, V3 v) {
@@ -604,13 +607,19 @@ static void DrawPanels(ID3D11RenderTargetView* rtv, int w, int h, const Slot& s,
     g_xctx->VSSetConstantBuffers(0, 1, &g_panelCb);
     g_xctx->PSSetShader(g_panelPs, nullptr, 0);
     g_xctx->PSSetSamplers(0, 1, &g_linear);
+    g_xctx->PSSetConstantBuffers(0, 1, &g_panelCb);
     const int texs[2] = {TexHud, TexMenu};
     const float* poses[2] = {s.meta.hudPose, s.meta.menuPose};
     const int flags[2] = {FlagHud, FlagMenu};
+    static int logged;
+    if (logged < 3) { logged++; Log("PANELS eye %d flags 0x%x, HUD pose (%.2f,%.2f,%.2f) %.2f m wide, eye at (%.2f,%.2f,%.2f)", eye, s.meta.flags,
+        s.meta.hudPose[0], s.meta.hudPose[1], s.meta.hudPose[2], s.meta.hudPose[7], s.meta.eye[eye].px, s.meta.eye[eye].py, s.meta.eye[eye].pz); }
     for (int i = 0; i < 2; i++) {
         if (!(s.meta.flags & flags[i])) continue;
-        float corners[16];
+        float corners[20] = {};
         PanelCorners(poses[i], s.meta.eye[eye], corners);
+        corners[16] = (i == 0 && (s.meta.flags & FlagHudOpaque)) ? 1.0f : 0.0f;
+        corners[17] = g_panelPink ? 1.0f : 0.0f;
         g_xctx->UpdateSubresource(g_panelCb, 0, nullptr, corners, 0, 0);
         g_xctx->PSSetShaderResources(0, 1, &s.srv[texs[i]]);
         g_xctx->Draw(4, 0);
@@ -619,6 +628,52 @@ static void DrawPanels(ID3D11RenderTargetView* rtv, int w, int h, const Slot& s,
     g_xctx->PSSetShaderResources(0, 1, &none);
     ID3D11RenderTargetView* noRtv = nullptr;
     g_xctx->OMSetRenderTargets(1, &noRtv, nullptr);
+}
+
+// Lab: writes what really goes to the headset (an eye swapchain image after the panels were drawn) as a BMP. XR thread.
+static char g_dumpPath[MAX_PATH];
+static volatile LONG g_dumpWanted = 0;
+static void DumpImage(int e, ID3D11Texture2D* tex) {
+    D3D11_TEXTURE2D_DESC td;
+    tex->GetDesc(&td);
+    td.Usage = D3D11_USAGE_STAGING;
+    td.BindFlags = 0;
+    td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    td.MiscFlags = 0;
+    ID3D11Texture2D* staging = nullptr;
+    if (FAILED(g_xdev->CreateTexture2D(&td, nullptr, &staging))) return;
+    g_xctx->CopyResource(staging, tex);
+    D3D11_MAPPED_SUBRESOURCE map;
+    if (SUCCEEDED(g_xctx->Map(staging, 0, D3D11_MAP_READ, 0, &map))) {
+        char path[MAX_PATH + 16];
+        sprintf_s(path, "%s_%d.bmp", g_dumpPath, e);
+        FILE* f = nullptr;
+        if (fopen_s(&f, path, "wb") == 0 && f) {
+            BITMAPFILEHEADER fh{};
+            BITMAPINFOHEADER ih{};
+            fh.bfType = 0x4D42;
+            fh.bfOffBits = sizeof(fh) + sizeof(ih);
+            fh.bfSize = fh.bfOffBits + td.Width * td.Height * 3;
+            ih.biSize = sizeof(ih);
+            ih.biWidth = td.Width;
+            ih.biHeight = -(LONG)td.Height;
+            ih.biPlanes = 1;
+            ih.biBitCount = 24;
+            fwrite(&fh, sizeof(fh), 1, f);
+            fwrite(&ih, sizeof(ih), 1, f);
+            int pad = (4 - (td.Width * 3) % 4) % 4;
+            std::vector<unsigned char> row(td.Width * 3 + pad);
+            for (UINT y = 0; y < td.Height; y++) {
+                const unsigned char* in = (const unsigned char*)map.pData + y * map.RowPitch;
+                for (UINT x = 0; x < td.Width; x++) { row[x * 3] = in[x * 4 + 2]; row[x * 3 + 1] = in[x * 4 + 1]; row[x * 3 + 2] = in[x * 4]; }
+                fwrite(row.data(), 1, row.size(), f);
+            }
+            fclose(f);
+            Log("DUMP %s_%d.bmp written, %ux%u", g_dumpPath, e, td.Width, td.Height);
+        }
+        g_xctx->Unmap(staging, 0);
+    }
+    staging->Release();
 }
 
 // Copies a slot texture into the swapchain's next image; Steady draws the panels on top of the eye images.
@@ -637,10 +692,14 @@ static bool CopyInto(Swap& sw, ID3D11Texture2D* src, const Slot* panels, int eye
             D3D11_RENDER_TARGET_VIEW_DESC rv{};
             rv.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
             rv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-            g_xdev->CreateRenderTargetView(sw.images[idx].texture, &rv, &rtv);
+            HRESULT hr = g_xdev->CreateRenderTargetView(sw.images[idx].texture, &rv, &rtv);
+            D3D11_TEXTURE2D_DESC sd;
+            sw.images[idx].texture->GetDesc(&sd);
+            Log("PANELS render target for eye %d image %u: %08lx (image format %d, bind 0x%x)", eye, idx, (unsigned long)hr, (int)sd.Format, sd.BindFlags);
         }
         if (rtv) DrawPanels(rtv, sw.w, sw.h, *panels, eye);
     }
+    if (g_dumpWanted && eye >= 0) { DumpImage(eye, sw.images[idx].texture); if (eye == 1) g_dumpWanted = 0; }
     p_release(sw.handle, nullptr);
     return true;
 }
@@ -736,8 +795,8 @@ static void XrLoop() {
             for (int t = 0; t < TexCount && ok; t++) if (need[t] && pick->kx[t]->AcquireSync(1, 100) != S_OK) { Log("slot texture %d not handed over in time", t); ok = false; }
             if (ok && (pick->meta.flags & FlagViewsValid)) {
                 ok = CopyInto(g_eyeSwap[0], pick->x[TexL], steady ? pick : nullptr, 0) && CopyInto(g_eyeSwap[1], pick->x[TexR], steady ? pick : nullptr, 1);
-                if (ok && !steady && need[TexHud]) ok = CopyInto(g_hudSwap, pick->x[TexHud], nullptr, 0);
-                if (ok && !steady && need[TexMenu]) ok = CopyInto(g_menuSwap, pick->x[TexMenu], nullptr, 0);
+                if (ok && !steady && need[TexHud]) ok = CopyInto(g_hudSwap, pick->x[TexHud], nullptr, -1);
+                if (ok && !steady && need[TexMenu]) ok = CopyInto(g_menuSwap, pick->x[TexMenu], nullptr, -1);
                 if (ok) {
                     g_lastMeta = pick->meta;
                     g_haveLast = true;
@@ -775,7 +834,9 @@ static void XrLoop() {
             for (int i = 0; i < 2; i++) {
                 if (!use[i]) continue;
                 XrCompositionLayerQuad& q = quads[i];
-                q.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+                // The title and loading screen is opaque; the HUD and menu blend by their own alpha.
+                bool opaque = i == 0 && (g_lastMeta.flags & FlagHudOpaque);
+                q.layerFlags = opaque ? 0 : XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
                 q.space = g_space;
                 q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
                 q.subImage.swapchain = sw[i]->handle;
@@ -995,6 +1056,8 @@ API int NslXR_EyeWidth() { return g_eyeW; }
 API int NslXR_EyeHeight() { return g_eyeH; }
 API int NslXR_LastError() { return (int)g_lastXrError; }
 API void NslXR_FailedLayers(char* out, int size) { strncpy_s(out, size, g_failedLayers, _TRUNCATE); }
+API void NslXR_DumpNext(const char* basePath) { strcpy_s(g_dumpPath, basePath); g_dumpWanted = 1; }
+API void NslXR_PanelPink(int on) { g_panelPink = on; }
 API int NslXR_TakeRecenter() { return InterlockedExchange(&g_recenterPending, 0) ? 1 : 0; }
 API void NslXR_RuntimeInfo(char* runtime, int runtimeSize, char* system, int systemSize) {
     strncpy_s(runtime, runtimeSize, g_runtimeName, _TRUNCATE);

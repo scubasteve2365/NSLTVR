@@ -4,6 +4,7 @@ using System.IO;
 using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
+using System.Reflection.Emit;
 using Playful.SuperLucky.Camera;
 using Playful.SuperLucky.Global;
 using UnityEngine;
@@ -14,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.1.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.2.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 1";
+        internal const string Version = "build 2";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -31,7 +32,7 @@ namespace NSLTVR
         internal SpeedLog Speed;
         internal MenuUI Menu;
 
-        const float DefHudWidth = 1.1f, DefHudX = 0f, DefHudY = -0.05f, DefHudDistance = 1.4f;
+        const float DefHudWidth = 1.2f, DefHudX = 0f, DefHudY = -0.40f, DefHudDistance = 1.3f;
         const float DefMenuWidth = 0.8f, DefMenuX = 0f, DefMenuY = -0.1f, DefMenuDistance = 0.9f;
 
         void Awake()
@@ -172,7 +173,7 @@ namespace NSLTVR
             hud.Rows.Add(Value("Height", hudY, 0.05f, -2f, 2f, () => Cm(hudY.Value), "Moves the HUD up or down from eye level."));
             hud.Rows.Add(Value("Distance", hudDistance, 0.05f, 0.4f, 5f, () => M(hudDistance.Value), "How far away the HUD is."));
             hud.Rows.Add(new MenuUI.Row { Label = "Reset HUD", Press = () => { hudWidth.Value = DefHudWidth; hudX.Value = DefHudX; hudY.Value = DefHudY; hudDistance.Value = DefHudDistance; hudMode.Value = "Fixed"; PushSettings(); Log.LogInfo("MENU reset HUD"); },
-                Help = () => "Press A to put the HUD back to Fixed, 1.10 m wide, 1.40 m away, a little below eye level." });
+                Help = () => "Press A to put the HUD back to Fixed, 1.20 m wide, 1.30 m away, 40 cm below eye level, where you look down at Lucky." });
 
             var menuTab = new MenuUI.Tab { Name = "Mod Menu" };
             menuTab.Rows.Add(Value("Size", menuWidth, 0.05f, 0.3f, 3f, () => M(menuWidth.Value) + " wide", "How wide this menu is.", true));
@@ -226,6 +227,10 @@ namespace NSLTVR
                 case "menu": Menu.LabKey(a.Length > 1 ? a[1] : "open"); break;
                 case "speedlog": Speed.Begin(a.Length > 1 ? F(a[1]) : 5f); break;
                 case "gfx": Probes.Graphics(); break;
+                case "picture": Rig.PictureMode = a[1] == "steady" ? 1 : a[1] == "panel" ? 2 : 0; Log.LogInfo("PICTURE lab override " + a[1]); break;
+                case "dump": Rig.Dump(a.Length > 1 ? a[1] : "dump"); break;
+                case "pink": Rig.Pink(int.Parse(a[1])); break;
+                case "hud": Rig.HudMode = a[1] == "head" ? 1 : a[1] == "hidden" ? 2 : 0; break;
                 default: Log.LogWarning("unknown command " + a[0]); break;
             }
         }
@@ -285,6 +290,57 @@ namespace NSLTVR
             if (listener(__instance) != null) return true;
             if (skipped++ == 0) Plugin.Log.LogInfo("HOOK CameraManager.Update skipped: the flat-screen listener is gone with the VR rig (it threw every frame)");
             return false;
+        }
+    }
+}
+
+namespace NSLTVR
+{
+    // The level-start wave turns the flat camera to look at Lucky (PlayerController.FadeInRoutine calls
+    // CameraManager.GetFlatScreenCamera().LevelStartCinemachineHeadlook()). With the VR rig there is no flat camera, so that
+    // call threw, the fade-in coroutine died, and Lucky's input lock and the game's black fade were never released:
+    // Steve's build 1 test on RigA (no pad control in the 3D world), seen on RigB too (flat rig moves Lucky, VR rig does not).
+    // In VR Lucky skips the wave, so the routine runs to its end.
+    [HarmonyPatch(typeof(Playful.SuperLucky.Gameplay.Player.PlayerVisualController.ShouldThePlayerReallyWave), MethodType.Constructor)]
+    static class NoWaveInVrPatch
+    {
+        static int calls;
+        static void Postfix(Playful.SuperLucky.Gameplay.Player.PlayerVisualController.ShouldThePlayerReallyWave __instance)
+        {
+            if (!GameConfiguration.InVrCameraMode()) return;
+            __instance.DoNotWave();
+            if (calls++ < 3) Plugin.Log.LogInfo("HOOK level start: no wave in VR (the wave needs the flat camera, which the VR rig removes)");
+        }
+    }
+}
+
+namespace NSLTVR
+{
+    // CameraManager.EnableCamera destroys the rig it does not use. With the VR rig that removes the flat camera, and with it
+    // the CinemachineBrain that NSLT code still reads (PlayerController.Warp -> CinemachineBrain.ActiveVirtualCamera threw on
+    // RigB, 2026-11-20, killing the level fade-in, so Lucky never got input). The flat rig and its listener are kept,
+    // switched off, instead of destroyed.
+    [HarmonyPatch(typeof(CameraManager), "EnableCamera")]
+    static class KeepFlatRigPatch
+    {
+        static System.Collections.Generic.IEnumerable<CodeInstruction> Transpiler(System.Collections.Generic.IEnumerable<CodeInstruction> code)
+        {
+            var destroy = AccessTools.Method(typeof(UnityEngine.Object), nameof(UnityEngine.Object.Destroy), new[] { typeof(UnityEngine.Object) });
+            var hide = AccessTools.Method(typeof(KeepFlatRigPatch), nameof(Hide));
+            int n = 0;
+            foreach (var c in code)
+            {
+                if (c.Calls(destroy)) { n++; yield return new CodeInstruction(OpCodes.Call, hide) { labels = c.labels, blocks = c.blocks }; }
+                else yield return c;
+            }
+            Plugin.Log.LogInfo("HOOK CameraManager.EnableCamera: " + n + " Destroy calls replaced (the unused rig is switched off, not destroyed)");
+        }
+
+        static void Hide(UnityEngine.Object o)
+        {
+            var go = o as GameObject;
+            if (go != null) { go.SetActive(false); Plugin.Log.LogInfo("HOOK kept " + go.name + " switched off instead of destroying it"); }
+            else if (o != null) UnityEngine.Object.Destroy(o);
         }
     }
 }

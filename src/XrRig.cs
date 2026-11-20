@@ -21,7 +21,7 @@ namespace NSLTVR
     {
         const string Dll = "NSLTVRNative";
         const int EventInit = 1, EventSubmit = 2, EventShutdown = 3, EventEyeBegin = 5;
-        const int FlagHud = 1, FlagMenu = 2, FlagSteady = 4, FlagViewsValid = 8;
+        const int FlagHud = 1, FlagMenu = 2, FlagSteady = 4, FlagViewsValid = 8, FlagHudOpaque = 16;
         internal const int HudW = 1920, HudH = 1080;
 
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -77,6 +77,12 @@ namespace NSLTVR
         PopLogFn xPopLog;
         RuntimeInfoFn xRuntimeInfo;
         FailedLayersFn xFailedLayers;
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void DumpNextFn([MarshalAs(UnmanagedType.LPStr)] string basePath);
+        DumpNextFn xDumpNext;
+        StartFn2 xPink;
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void StartFn2(int on);
+        internal void Pink(int on) { if (nativeLoaded) xPink(on); }
+        internal void Dump(string name) { if (nativeLoaded) { Directory.CreateDirectory(ShotDir); xDumpNext(Path.Combine(ShotDir, name)); } }
 
         static T Fn<T>(IntPtr module, string name) where T : class
         {
@@ -91,7 +97,8 @@ namespace NSLTVR
         internal Vector3 LabHead;
         internal bool Stamp;
         internal int HudMode;  // 0 Fixed, 1 Follows head, 2 Hidden
-        internal float HudWidth = 1.1f, HudX, HudY = -0.05f, HudDistance = 1.4f;
+        internal int PictureMode;  // lab: 0 Auto, 1 Steady, 2 Panel
+        internal float HudWidth = 1.2f, HudX, HudY = -0.40f, HudDistance = 1.3f;
         internal float MenuWidth = 0.8f, MenuX, MenuY = -0.1f, MenuDistance = 0.9f;
         internal MenuUI Menu;
 
@@ -149,6 +156,8 @@ namespace NSLTVR
             xPopLog = Fn<PopLogFn>(module, "NslXR_PopLog");
             xRuntimeInfo = Fn<RuntimeInfoFn>(module, "NslXR_RuntimeInfo");
             xFailedLayers = Fn<FailedLayersFn>(module, "NslXR_FailedLayers");
+            xDumpNext = Fn<DumpNextFn>(module, "NslXR_DumpNext");
+            xPink = Fn<StartFn2>(module, "NslXR_PanelPink");
             renderEvent = xGetRenderEvent();
             nativeLoaded = true;
             return true;
@@ -305,7 +314,8 @@ namespace NSLTVR
                 if (hud) flags |= FlagHud;
                 bool menuOpen = Menu != null && Menu.IsOpen && Menu.Texture != null;
                 if (menuOpen) flags |= FlagMenu;
-                if (AutoPicksSteady(RuntimeName)) flags |= FlagSteady;
+                if (PictureMode == 1 || (PictureMode == 0 && AutoPicksSteady(RuntimeName))) flags |= FlagSteady;
+                if (screenMode) flags |= FlagHudOpaque;
                 FillMeta(vi, flags, world);
                 xQueueFrame(eyeOut[0].GetNativeTexturePtr(), eyeOut[1].GetNativeTexturePtr(), hud ? hudOut.GetNativeTexturePtr() : IntPtr.Zero,
                     menuOpen ? Menu.Texture.GetNativeTexturePtr() : IntPtr.Zero, ref meta);
@@ -596,7 +606,11 @@ namespace NSLTVR
                 meta.hudPose = PoseArray(head + q * new Vector3(HudX, HudY, -HudDistance), q, HudWidth, HudWidth * HudH / HudW);
             }
             else
-                meta.hudPose = PoseArray(xrViewPoint + xrTurn * new Vector3(HudX, HudY, -HudDistance), xrTurn, HudWidth, HudWidth * HudH / HudW);
+            {
+                // Fixed: in the room at the recenter point. Below eye level it tilts back to face the eyes.
+                var tilt = xrTurn * Quaternion.AngleAxis(Mathf.Atan2(HudY, HudDistance) * Mathf.Rad2Deg, Vector3.right);
+                meta.hudPose = PoseArray(xrViewPoint + xrTurn * new Vector3(HudX, HudY, -HudDistance), tilt, HudWidth, HudWidth * HudH / HudW);
+            }
             bool open = Menu != null && Menu.IsOpen;
             if (open && !menuWasOpen && vi.viewsValid != 0) PlaceMenu(vi);  // the menu opens in front of where you face
             menuWasOpen = open;
