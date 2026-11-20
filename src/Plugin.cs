@@ -15,15 +15,15 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.3.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.4.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 3";
+        internal const string Version = "build 4";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
         ConfigEntry<bool> labCommands, autoStart, bloomOff;
-        ConfigEntry<float> resolution, ipdScale, hudWidth, hudX, hudY, hudDistance, menuWidth, menuX, menuY, menuDistance;
+        ConfigEntry<float> turnSpeed, resolution, ipdScale, hudWidth, hudX, hudY, hudDistance, menuWidth, menuX, menuY, menuDistance;
         ConfigEntry<string> hudMode, menuKey, forcePreset;
         string commandFile;
         int nextCommandCheck, nextSlowCheck;
@@ -43,6 +43,7 @@ namespace NSLTVR
             forcePreset = Config.Bind("Lab", "ForcePreset", "", "Lab only: put the game on this graphics preset at start (graphics_low, graphics_medium, ...). Empty leaves your settings alone.");
             ipdScale = Config.Bind("Lab", "IpdOverride", 0f, "0 uses the game's own camera scale (zone IPDScale). Above 0, use this scale instead.");
             autoStart = Config.Bind("VR", "AutoStart", true, "Start VR by itself once the game is running.");
+            turnSpeed = Config.Bind("VR", "TurnSpeed", 90f, "Right stick turns the camera around Lucky, in degrees a second at full tilt. 0 is off.");
             CameraRig = Config.Bind("VR", "CameraRig", "VR", "VR: the camera rig left over from Lucky's Tale VR. Flat: the game's normal camera. Read at game start.");
             resolution = Config.Bind("VR", "Resolution", 1.0f, "Eye size as a share of what the headset asks for. 1 is 100%. Used from the next start.");
             bloomOff = Config.Bind("Picture", "BloomOff", true, "Turn off the game's bloom and god rays, which look different in each eye.");
@@ -93,7 +94,7 @@ namespace NSLTVR
                 triedAutoStart = true;
                 Rig.Begin();
             }
-            StickDropoutPatch.Tick();
+            PreferPadPatch.Tick();
             if (Time.frameCount >= nextSlowCheck)
             {
                 nextSlowCheck = Time.frameCount + 120;
@@ -119,6 +120,7 @@ namespace NSLTVR
             Rig.HudWidth = hudWidth.Value; Rig.HudX = hudX.Value; Rig.HudY = hudY.Value; Rig.HudDistance = hudDistance.Value;
             Rig.MenuWidth = menuWidth.Value; Rig.MenuX = menuX.Value; Rig.MenuY = menuY.Value; Rig.MenuDistance = menuDistance.Value;
             Effects.BloomOff = bloomOff.Value;
+            RightStickTurnPatch.DegreesPerSecond = turnSpeed.Value;
         }
 
         static string M(float v) { return v.ToString("F2", CultureInfo.InvariantCulture) + " m"; }
@@ -250,7 +252,7 @@ namespace NSLTVR
                 case "pink": Rig.Pink(int.Parse(a[1])); break;
                 case "canvases": Probes.Canvases(); break;
                 case "track": StartCoroutine(Track(a.Length > 1 ? F(a[1]) : 3f)); break;
-                case "stickfill": StickDropoutPatch.On = a[1] == "1"; Log.LogInfo("stick fill " + StickDropoutPatch.On); break;
+                case "preferpad": PreferPadPatch.On = a[1] == "1"; Log.LogInfo("prefer pad " + PreferPadPatch.On); break;
                 case "hud": Rig.HudMode = a[1] == "head" ? 1 : a[1] == "hidden" ? 2 : 0; break;
                 default: Log.LogWarning("unknown command " + a[0]); break;
             }
