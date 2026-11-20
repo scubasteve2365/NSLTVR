@@ -269,3 +269,22 @@ namespace NSLTVR
         }
     }
 }
+
+namespace NSLTVR
+{
+    // With the VR rig, CameraManager.EnableCamera destroys the flat-screen audio listener, but CameraManager.Update still
+    // moves it every frame: a NullReferenceException per frame (27,424 in one RigB session, 2026-11-20), each one logged.
+    // The VR rig's listener is the VR camera itself, so the update is skipped once the flat listener is gone.
+    [HarmonyPatch(typeof(CameraManager), "Update")]
+    static class CameraManagerUpdatePatch
+    {
+        static readonly AccessTools.FieldRef<CameraManager, GameObject> listener = AccessTools.FieldRefAccess<CameraManager, GameObject>("_flatScreenListener");
+        static int skipped;
+        static bool Prefix(CameraManager __instance)
+        {
+            if (listener(__instance) != null) return true;
+            if (skipped++ == 0) Plugin.Log.LogInfo("HOOK CameraManager.Update skipped: the flat-screen listener is gone with the VR rig (it threw every frame)");
+            return false;
+        }
+    }
+}

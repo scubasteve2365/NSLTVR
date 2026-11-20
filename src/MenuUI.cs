@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 
 namespace NSLTVR
 {
@@ -55,9 +56,9 @@ namespace NSLTVR
         RenderTexture rt, outRt;  // outRt is upside down, as the headset wants it
         Camera menuCam;
         GameObject root;
-        UnityEngine.UI.Text[] tabText, labels, values;
+        TextMeshProUGUI[] tabText, labels, values;
         Image[] tabLine, rowBar;
-        UnityEngine.UI.Text help, footer, version;
+        TextMeshProUGUI help, footer, version;
         int tab, selected;
         float bothSince = -1f, nextRepeat;
         bool bothFired, waitRelease, aWas, bWas, tabLWas, tabRWas, dirty;
@@ -96,16 +97,16 @@ namespace NSLTVR
             return all;
         }
 
-        // The game's own font: the one most of its loaded UI text uses.
-        static Font GameFont()
+        // The game's own font: the TextMesh Pro font most of its loaded UI text uses (the game draws its text with TextMesh Pro).
+        static TMP_FontAsset GameFont()
         {
-            var counts = new Dictionary<Font, int>();
-            foreach (var t in Resources.FindObjectsOfTypeAll<UnityEngine.UI.Text>())
+            var counts = new Dictionary<TMP_FontAsset, int>();
+            foreach (var t in Resources.FindObjectsOfTypeAll<TextMeshProUGUI>())
                 if (t.font != null) { int c; counts.TryGetValue(t.font, out c); counts[t.font] = c + 1; }
-            var best = counts.Where(kv => kv.Key.name != "Arial").OrderByDescending(kv => kv.Value).Select(kv => kv.Key).FirstOrDefault();
-            Plugin.Log.LogInfo("MENU fonts in use: " + string.Join(", ", counts.OrderByDescending(kv => kv.Value).Select(kv => kv.Key.name + " x" + kv.Value).ToArray())
-                + "; menu uses " + (best != null ? best.name : "Arial"));
-            return best ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            var best = counts.OrderByDescending(kv => kv.Value).Select(kv => kv.Key).FirstOrDefault();
+            Plugin.Log.LogInfo("MENU fonts in use: " + string.Join(", ", counts.OrderByDescending(kv => kv.Value).Take(6).Select(kv => kv.Key.name + " x" + kv.Value).ToArray())
+                + "; menu uses " + (best != null ? best.name : "TextMesh Pro default"));
+            return best ?? TMP_Settings.defaultFontAsset;
         }
 
         bool Build()
@@ -136,14 +137,14 @@ namespace NSLTVR
             canvas.planeDistance = 5f;
             var scaler = root.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
-            Font font = GameFont();
+            TMP_FontAsset font = GameFont();
 
             // The card: a gold rim, a purple card, a darker band for the help text.
             Img(Edge, 1012, 788, 0, 0);
             Img(Card, 996, 772, 0, 0);
             version = Txt(font, 22, TextSoft, TextAnchor.MiddleRight, 400, 30, 280, 350);
             int n = Math.Max(1, Tabs.Count);
-            tabText = new UnityEngine.UI.Text[n];
+            tabText = new TextMeshProUGUI[n];
             tabLine = new Image[n];
             float tabW = 900f / n;
             for (int i = 0; i < n; i++)
@@ -153,8 +154,8 @@ namespace NSLTVR
                 tabLine[i] = Img(Teal, tabW - 40, 6, x, 262);
             }
             Img(TextSoft, 900, 2, 0, 250);
-            labels = new UnityEngine.UI.Text[MaxRows];
-            values = new UnityEngine.UI.Text[MaxRows];
+            labels = new TextMeshProUGUI[MaxRows];
+            values = new TextMeshProUGUI[MaxRows];
             rowBar = new Image[MaxRows];
             for (int i = 0; i < MaxRows; i++)
             {
@@ -166,11 +167,11 @@ namespace NSLTVR
             Img(CardDark, 900, 124, 0, -258);
             Img(Gold, 6, 124, -447, -258);
             help = Txt(font, 26, Text, TextAnchor.UpperLeft, 860, 114, 8, -262);
-            help.horizontalOverflow = HorizontalWrapMode.Wrap;
-            help.verticalOverflow = VerticalWrapMode.Truncate;
-            help.resizeTextForBestFit = true;
-            help.resizeTextMinSize = 18;
-            help.resizeTextMaxSize = 26;
+            help.enableWordWrapping = true;
+            help.overflowMode = TextOverflowModes.Truncate;
+            help.enableAutoSizing = true;
+            help.fontSizeMin = 18;
+            help.fontSizeMax = 26;
             footer = Txt(font, 21, TextSoft, TextAnchor.MiddleCenter, 960, 30, 0, -350);
             SetLayer(root);
             root.SetActive(false);
@@ -190,16 +191,27 @@ namespace NSLTVR
             return img;
         }
 
-        UnityEngine.UI.Text Txt(Font font, int size, Color c, TextAnchor anchor, float w, float h, float x, float y)
+        static TextAlignmentOptions Align(TextAnchor a)
+        {
+            switch (a)
+            {
+                case TextAnchor.MiddleLeft: return TextAlignmentOptions.Left;
+                case TextAnchor.MiddleRight: return TextAlignmentOptions.Right;
+                case TextAnchor.UpperLeft: return TextAlignmentOptions.TopLeft;
+                default: return TextAlignmentOptions.Center;
+            }
+        }
+
+        TextMeshProUGUI Txt(TMP_FontAsset font, int size, Color c, TextAnchor anchor, float w, float h, float x, float y)
         {
             var go = new GameObject("text");
             go.transform.SetParent(root.transform, false);
-            var t = go.AddComponent<UnityEngine.UI.Text>();
-            t.font = font;
+            var t = go.AddComponent<TextMeshProUGUI>();
+            if (font != null) t.font = font;
             t.fontSize = size;
-            t.alignment = anchor;
-            t.horizontalOverflow = HorizontalWrapMode.Overflow;
-            t.verticalOverflow = VerticalWrapMode.Overflow;
+            t.alignment = Align(anchor);
+            t.enableWordWrapping = false;
+            t.overflowMode = TextOverflowModes.Overflow;
             t.color = c;
             t.rectTransform.sizeDelta = new Vector2(w, h);
             t.rectTransform.anchoredPosition = new Vector2(x, y);
