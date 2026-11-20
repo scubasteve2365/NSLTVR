@@ -1,8 +1,6 @@
 using System;
 using System.Globalization;
 using System.IO;
-using System.Linq;
-using System.Text;
 using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
@@ -13,46 +11,70 @@ using UnityEngine.SceneManagement;
 
 namespace NSLTVR
 {
-    // NSLTVR, feasibility build: switches New Super Lucky's Tale to the VR camera rig left over from Lucky's Tale VR (or keeps the
-    // flat rig), and renders both eyes from one game tick into OpenXR. Skeleton copied from CupheadVR (MIT, scubasteve2365).
-    // Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.0.1")]
+    // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
+    // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
+    // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.1.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "0.01 feasibility";
+        internal const string Version = "build 1";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
-        ConfigEntry<bool> labCommands, autoStart;
-        ConfigEntry<float> resolution, flatScale, ipdScale;
+        ConfigEntry<bool> labCommands, autoStart, bloomOff;
+        ConfigEntry<float> resolution, ipdScale, hudWidth, hudX, hudY, hudDistance, menuWidth, menuX, menuY, menuDistance;
+        ConfigEntry<string> hudMode, menuKey, forcePreset;
         string commandFile;
-        int nextCommandCheck;
+        int nextCommandCheck, nextSlowCheck;
         bool triedAutoStart;
         internal XrRig Rig;
         internal SpeedLog Speed;
+        internal MenuUI Menu;
+
+        const float DefHudWidth = 1.1f, DefHudX = 0f, DefHudY = -0.05f, DefHudDistance = 1.4f;
+        const float DefMenuWidth = 0.8f, DefMenuX = 0f, DefMenuY = -0.1f, DefMenuDistance = 0.9f;
 
         void Awake()
         {
             Log = Logger;
             Instance = this;
-            labCommands = Config.Bind("Lab", "Commands", true, "Developer test commands read from vrlab_command.txt in the game folder.");
+            labCommands = Config.Bind("Lab", "Commands", false, "Developer test commands read from vrlab_command.txt in the game folder. Leave off.");
+            forcePreset = Config.Bind("Lab", "ForcePreset", "", "Lab only: put the game on this graphics preset at start (graphics_low, graphics_medium, ...). Empty leaves your settings alone.");
+            ipdScale = Config.Bind("Lab", "IpdOverride", 0f, "0 uses the game's own camera scale (zone IPDScale). Above 0, use this scale instead.");
             autoStart = Config.Bind("VR", "AutoStart", true, "Start VR by itself once the game is running.");
             CameraRig = Config.Bind("VR", "CameraRig", "VR", "VR: the camera rig left over from Lucky's Tale VR. Flat: the game's normal camera. Read at game start.");
-            resolution = Config.Bind("VR", "Resolution", 1.0f, "Eye size as a share of what the headset asks for. 1 is 100%.");
-            flatScale = Config.Bind("VR", "FlatWorldScale", 1.0f, "Flat rig only: how many game units one real metre of head movement is.");
-            ipdScale = Config.Bind("Lab", "IpdOverride", 0f, "0 uses the game's own camera scale (zone IPDScale). Above 0, use this scale instead.");
+            resolution = Config.Bind("VR", "Resolution", 1.0f, "Eye size as a share of what the headset asks for. 1 is 100%. Used from the next start.");
+            bloomOff = Config.Bind("Picture", "BloomOff", true, "Turn off the game's bloom and god rays, which look different in each eye.");
+            hudMode = Config.Bind("HUD", "Mode", "Fixed", "Fixed: the HUD stays in place in the room. FollowsHead: it moves with your head. Hidden: no HUD.");
+            hudWidth = Config.Bind("HUD", "Width", DefHudWidth, "HUD width in metres.");
+            hudX = Config.Bind("HUD", "X", DefHudX, "HUD left (-) or right (+) in metres.");
+            hudY = Config.Bind("HUD", "Y", DefHudY, "HUD height from eye level in metres.");
+            hudDistance = Config.Bind("HUD", "Distance", DefHudDistance, "HUD distance in metres.");
+            menuWidth = Config.Bind("Menu", "Width", DefMenuWidth, "Mod menu width in metres.");
+            menuX = Config.Bind("Menu", "X", DefMenuX, "Mod menu left (-) or right (+) in metres.");
+            menuY = Config.Bind("Menu", "Y", DefMenuY, "Mod menu height from eye level in metres.");
+            menuDistance = Config.Bind("Menu", "Distance", DefMenuDistance, "Mod menu distance in metres.");
+            menuKey = Config.Bind("Menu", "Key", "Insert", "Keyboard key that opens and closes the mod menu (a Unity KeyCode name).");
             commandFile = Path.Combine(Paths.GameRootPath, "vrlab_command.txt");
             Rig = gameObject.AddComponent<XrRig>();
             Rig.PluginDir = Path.GetDirectoryName(Info.Location);
             Rig.ShotDir = Path.Combine(Paths.GameRootPath, "vrlab_shots");
-            Rig.Resolution = resolution.Value;
-            Rig.FlatScale = flatScale.Value;
+            Rig.Resolution = Mathf.Clamp(resolution.Value, 0.5f, 2f);
             Rig.IpdOverride = ipdScale.Value;
+            Menu = gameObject.AddComponent<MenuUI>();
+            Menu.Version = "NSLT VR " + Version;
+            Menu.VrActive = () => Rig.Running;
+            Menu.Problem = () => Rig.StartProblem;
+            try { Menu.MenuKey = (KeyCode)Enum.Parse(typeof(KeyCode), menuKey.Value, true); }
+            catch (Exception) { Log.LogWarning("Menu key \"" + menuKey.Value + "\" is not a key name, using Insert"); Menu.MenuKey = KeyCode.Insert; }
+            Rig.Menu = Menu;
+            BuildMenu();
+            PushSettings();
             Speed = gameObject.AddComponent<SpeedLog>();
             Speed.Rig = Rig;
             SceneManager.sceneLoaded += (scene, mode) => Log.LogInfo("SCENE loaded " + scene.name + " mode " + mode + " frame " + Time.frameCount);
             new Harmony("com.scubasteve2365.nsltvr").PatchAll(typeof(Plugin).Assembly);
-            Log.LogInfo("NSLTVR " + Version + " loaded. Unity " + Application.unityVersion + ", pointer size " + IntPtr.Size + ", camera rig setting " + CameraRig.Value);
+            Log.LogInfo("NSLTVR " + Version + " loaded. Unity " + Application.unityVersion + ", pointer size " + IntPtr.Size + ", camera rig " + CameraRig.Value + ", menu key " + Menu.MenuKey);
             Log.LogInfo("ONLINE telemetry: TelemetryClientWrapper.FireEvent is empty in this build (static read), nothing to block");
         }
 
@@ -60,7 +82,7 @@ namespace NSLTVR
 
         void Update()
         {
-            if (Time.frameCount >= nextCommandCheck && labCommands.Value)
+            if (labCommands.Value && Time.frameCount >= nextCommandCheck)
             {
                 nextCommandCheck = Time.frameCount + 15;
                 ReadCommands();
@@ -70,7 +92,101 @@ namespace NSLTVR
                 triedAutoStart = true;
                 Rig.Begin();
             }
+            if (Time.frameCount >= nextSlowCheck)
+            {
+                nextSlowCheck = Time.frameCount + 120;
+                Effects.ForcePreset(forcePreset.Value);
+                Effects.LogGameSettings("check");
+                if (Rig.Running && !Speed.On) Speed.Begin(10f);
+                // The HUD and title screens are drawn for a 16:9 picture: keep the window 16:9 while VR runs.
+                if (Rig.Running && Mathf.Abs((float)Screen.width / Mathf.Max(1, Screen.height) - 16f / 9f) > 0.02f)
+                {
+                    Log.LogInfo("WINDOW " + Screen.width + "x" + Screen.height + " is not 16:9, set to 1920x1080 for the HUD panel");
+                    Screen.SetResolution(1920, 1080, Screen.fullScreen);
+                }
+            }
         }
+
+        // ---- settings and menu ----
+
+        void PushSettings()
+        {
+            Rig.HudMode = hudMode.Value.Equals("FollowsHead", StringComparison.OrdinalIgnoreCase) ? 1 : hudMode.Value.Equals("Hidden", StringComparison.OrdinalIgnoreCase) ? 2 : 0;
+            Rig.HudWidth = hudWidth.Value; Rig.HudX = hudX.Value; Rig.HudY = hudY.Value; Rig.HudDistance = hudDistance.Value;
+            Rig.MenuWidth = menuWidth.Value; Rig.MenuX = menuX.Value; Rig.MenuY = menuY.Value; Rig.MenuDistance = menuDistance.Value;
+            Effects.BloomOff = bloomOff.Value;
+        }
+
+        static string M(float v) { return v.ToString("F2", CultureInfo.InvariantCulture) + " m"; }
+        static string Cm(float v) { return (v >= 0f ? "+" : "") + Mathf.RoundToInt(v * 100f) + " cm"; }
+
+        MenuUI.Row Value(string label, ConfigEntry<float> e, float step, float min, float max, Func<string> show, string help, bool menuPlace = false)
+        {
+            return new MenuUI.Row
+            {
+                Label = label,
+                Value = show,
+                Change = dir =>
+                {
+                    e.Value = Mathf.Clamp((float)Math.Round(e.Value + dir * step, 3), min, max);
+                    PushSettings();
+                    if (menuPlace) Rig.ReplaceMenu();
+                    Log.LogInfo("MENU " + label + " " + show());
+                },
+                Help = () => help,
+            };
+        }
+
+        static readonly string[] HudModes = { "Fixed", "FollowsHead", "Hidden" };
+        static readonly string[] HudModeNames = { "Fixed", "Follows head", "Hidden" };
+
+        void BuildMenu()
+        {
+            var general = new MenuUI.Tab { Name = "General" };
+            general.Rows.Add(new MenuUI.Row { Label = "Recenter", Press = () => { Rig.Recenter(); Log.LogInfo("MENU recenter"); },
+                Help = () => "Press A to put the view, the HUD and this menu straight ahead of where you face now. Your headset's own recenter does the same." });
+            general.Rows.Add(new MenuUI.Row
+            {
+                Label = "Resolution",
+                Value = () => Mathf.RoundToInt(resolution.Value * 100f) + "%",
+                Change = dir => { resolution.Value = Mathf.Clamp((float)Math.Round(resolution.Value + dir * 0.05f, 2), 0.5f, 2f); Log.LogInfo("MENU resolution " + resolution.Value + " (next start)"); },
+                Help = () => "How sharp the game is drawn, as a share of what your headset asks for. Takes effect the next time you start the game. Running now: "
+                    + (Rig.Running ? Rig.EyeWidth + " x " + Rig.EyeHeight : "VR not running") + " per eye. Next start: " + NextSize() + " per eye.",
+            });
+            general.Rows.Add(new MenuUI.Row { Label = "Close", Press = () => Menu.Close(), Help = () => "Close the menu. B, Insert or holding both sticks also closes it." });
+
+            var hud = new MenuUI.Tab { Name = "HUD" };
+            hud.Rows.Add(new MenuUI.Row
+            {
+                Label = "HUD",
+                Value = () => HudModeNames[Rig.HudMode],
+                Change = dir => { hudMode.Value = HudModes[(Rig.HudMode + dir + 3) % 3]; PushSettings(); Log.LogInfo("MENU HUD " + hudMode.Value); },
+                Help = () => Rig.HudMode == 0 ? "Fixed: the hearts, coins and clovers stay in one place in the room, in front of where you recentered."
+                    : Rig.HudMode == 1 ? "Follows head: the HUD moves with your head and always sits in the same spot in your view."
+                    : "Hidden: no HUD in the headset.",
+            });
+            hud.Rows.Add(Value("Size", hudWidth, 0.05f, 0.3f, 4f, () => M(hudWidth.Value) + " wide", "How wide the HUD is."));
+            hud.Rows.Add(Value("Left / right", hudX, 0.05f, -2f, 2f, () => Cm(hudX.Value), "Moves the HUD left or right."));
+            hud.Rows.Add(Value("Height", hudY, 0.05f, -2f, 2f, () => Cm(hudY.Value), "Moves the HUD up or down from eye level."));
+            hud.Rows.Add(Value("Distance", hudDistance, 0.05f, 0.4f, 5f, () => M(hudDistance.Value), "How far away the HUD is."));
+            hud.Rows.Add(new MenuUI.Row { Label = "Reset HUD", Press = () => { hudWidth.Value = DefHudWidth; hudX.Value = DefHudX; hudY.Value = DefHudY; hudDistance.Value = DefHudDistance; hudMode.Value = "Fixed"; PushSettings(); Log.LogInfo("MENU reset HUD"); },
+                Help = () => "Press A to put the HUD back to Fixed, 1.10 m wide, 1.40 m away, a little below eye level." });
+
+            var menuTab = new MenuUI.Tab { Name = "Mod Menu" };
+            menuTab.Rows.Add(Value("Size", menuWidth, 0.05f, 0.3f, 3f, () => M(menuWidth.Value) + " wide", "How wide this menu is.", true));
+            menuTab.Rows.Add(Value("Left / right", menuX, 0.05f, -2f, 2f, () => Cm(menuX.Value), "Moves this menu left or right.", true));
+            menuTab.Rows.Add(Value("Height", menuY, 0.05f, -2f, 2f, () => Cm(menuY.Value), "Moves this menu up or down from eye level.", true));
+            menuTab.Rows.Add(Value("Distance", menuDistance, 0.05f, 0.4f, 5f, () => M(menuDistance.Value), "How far away this menu is.", true));
+            menuTab.Rows.Add(new MenuUI.Row { Label = "Reset menu", Press = () => { menuWidth.Value = DefMenuWidth; menuX.Value = DefMenuX; menuY.Value = DefMenuY; menuDistance.Value = DefMenuDistance; PushSettings(); Rig.ReplaceMenu(); Log.LogInfo("MENU reset menu"); },
+                Help = () => "Press A to put this menu back to 0.80 m wide, 0.90 m away, a little below eye level." });
+            Menu.Tabs.Add(general);
+            Menu.Tabs.Add(hud);
+            Menu.Tabs.Add(menuTab);
+        }
+
+        string NextSize() { var r = Rig.Resolution; Rig.Resolution = resolution.Value; var s = Rig.NextLaunchSize(); Rig.Resolution = r; return s; }
+
+        // ---- lab commands ----
 
         void ReadCommands()
         {
@@ -101,17 +217,12 @@ namespace NSLTVR
                 case "vroff": Rig.End(); break;
                 case "shot": Rig.Shot(); break;
                 case "eyecheck": Rig.EyeCheck(); break;
-                case "zerodiff": Rig.ZeroDiff(); break;
                 case "stamp": Rig.Stamp = a.Length < 2 || a[1] != "0"; break;
                 case "ipd": Rig.IpdOverride = F(a[1]); Log.LogInfo("IPD override " + Rig.IpdOverride); break;
-                case "flatscale": Rig.FlatScale = F(a[1]); break;
                 case "fakehead": Rig.LabHead = new Vector3(F(a[1]), F(a[2]), F(a[3])); break;
                 case "recenter": Rig.Recenter(); break;
+                case "menu": Menu.LabKey(a.Length > 1 ? a[1] : "open"); break;
                 case "speedlog": Speed.Begin(a.Length > 1 ? F(a[1]) : 5f); break;
-                case "speedoff": Speed.On = false; break;
-                case "timescale": Time.timeScale = F(a[1]); break;
-                case "scene": SceneManager.LoadScene(a[1]); break;
-                case "dumpscenes": Probes.Scenes(); break;
                 case "gfx": Probes.Graphics(); break;
                 default: Log.LogWarning("unknown command " + a[0]); break;
             }
@@ -120,8 +231,7 @@ namespace NSLTVR
 
     // The switch between the two camera rigs. CalculateShouldBeInVR is compiled to "return false" in this build (static read),
     // and GameConfiguration.Awake stores its answer in _inVrCameraMode, which every other VR check reads through
-    // InVrCameraMode(). A tiny method like CalculateShouldBeInVR may be inlined by Mono's JIT, so the field is also set
-    // directly after Awake.
+    // InVrCameraMode(). The field is also set directly after Awake, in case the JIT inlined the tiny method.
     [HarmonyPatch(typeof(GameConfiguration), nameof(GameConfiguration.CalculateShouldBeInVR))]
     static class ShouldBeInVrPatch
     {

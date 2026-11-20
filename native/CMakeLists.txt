@@ -7,7 +7,7 @@ add_library(NSLTVRNative SHARED NSLTVRNative.cpp
     ${MINHOOK_DIR}/src/buffer.c ${MINHOOK_DIR}/src/hook.c ${MINHOOK_DIR}/src/trampoline.c
     ${MINHOOK_DIR}/src/hde/hde64.c ${MINHOOK_DIR}/src/hde/hde32.c)
 target_include_directories(NSLTVRNative PRIVATE ${OPENXR_DIR}/include ${MINHOOK_DIR}/include)
-target_link_libraries(NSLTVRNative PRIVATE d3d11 dxgi advapi32)
+target_link_libraries(NSLTVRNative PRIVATE d3d11 dxgi advapi32 winmm)
 set_target_properties(NSLTVRNative PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/../../build")
 add_custom_command(TARGET NSLTVRNative POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
