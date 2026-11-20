@@ -49,6 +49,50 @@ namespace NSLTVR
         internal Func<string> Problem = () => null;
         internal Func<bool> VrActive = () => false;
         internal Action Closed;
+        internal Func<int> Volume = () => 2;  // 0 off .. 3 high
+        AudioSource audioSource;
+        AudioClip clickMove, clickChange, clickTab, clickOpen, clickClose, clickRefuse;
+
+        // Short generated tones (no game audio files), ported from CupheadVR, pitched a little higher and rounder for NSLT.
+        void MakeSounds()
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.spatialBlend = 0f;
+            audioSource.ignoreListenerPause = true;
+            audioSource.ignoreListenerVolume = true;
+            audioSource.playOnAwake = false;
+            clickMove = Tone("move", 990f, 1050f, 0.035f);
+            clickChange = Tone("change", 1320f, 1480f, 0.045f);
+            clickTab = Tone("tab", 740f, 1110f, 0.07f);
+            clickOpen = Tone("open", 590f, 1180f, 0.12f);
+            clickClose = Tone("close", 1180f, 590f, 0.12f);
+            clickRefuse = Tone("refuse", 220f, 190f, 0.14f);
+        }
+
+        static AudioClip Tone(string name, float f0, float f1, float seconds)
+        {
+            const int rate = 44100;
+            int n = (int)(rate * seconds);
+            var data = new float[n];
+            double phase = 0;
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / n;
+                phase += 2 * Math.PI * Mathf.Lerp(f0, f1, t) / rate;
+                float env = Mathf.Min(1f, i / (rate * 0.004f)) * (1f - t) * (1f - t);
+                data[i] = (float)(Math.Sin(phase) + 0.25 * Math.Sin(2 * phase)) * env * 0.4f;
+            }
+            var clip = AudioClip.Create("NSLTVR " + name, n, 1, rate, false);
+            clip.SetData(data, 0);
+            return clip;
+        }
+
+        void Play(AudioClip clip)
+        {
+            int v = Volume != null ? Volume() : 2;
+            if (audioSource == null || clip == null || v <= 0) return;
+            audioSource.PlayOneShot(clip, v == 1 ? 0.25f : v == 2 ? 0.5f : 1f);
+        }
         internal KeyCode MenuKey = KeyCode.Insert;
         internal bool IsOpen { get; private set; }
         internal RenderTexture Texture { get { return IsOpen ? outRt : null; } }
@@ -175,6 +219,7 @@ namespace NSLTVR
             footer = Txt(font, 21, TextSoft, TextAnchor.MiddleCenter, 960, 30, 0, -350);
             SetLayer(root);
             root.SetActive(false);
+            MakeSounds();
             return true;
         }
 
@@ -236,6 +281,7 @@ namespace NSLTVR
             SetGameInput(false);
             aWas = bWas = tabLWas = tabRWas = true;  // ignore presses already held
             Refresh();
+            Play(clickOpen);
             Plugin.Log.LogInfo("MENU open");
         }
 
@@ -245,6 +291,7 @@ namespace NSLTVR
             IsOpen = false;
             if (root != null) root.SetActive(false);
             waitRelease = true;  // the game stays deaf until every button is up
+            Play(clickClose);
             closedAt = Time.realtimeSinceStartup;
             Plugin.Log.LogInfo("MENU close");
             if (Closed != null) Closed();
@@ -360,8 +407,26 @@ namespace NSLTVR
         }
 
         // With VR off the menu is drawn on the flat game window instead.
+        GUIStyle bannerStyle;
+        internal Func<float> ProblemTime = () => 0f;
+
         void OnGUI()
         {
+            string problem = Problem();
+            // VR did not start: say so on the flat screen for 30 s, so a player never sits in front of a silent flat game
+            // (LESSONS_LEARNED.md "VR fails and the player sees nothing"). The menu (Insert) shows the reason too.
+            if (!VrActive() && !IsOpen && problem != null && Time.realtimeSinceStartup - ProblemTime() < 30f)
+            {
+                if (bannerStyle == null)
+                {
+                    bannerStyle = new GUIStyle(GUI.skin.box) { fontSize = Math.Max(12, Screen.height / 60), wordWrap = true, alignment = TextAnchor.MiddleLeft };
+                    bannerStyle.normal.textColor = Color.white;
+                    bannerStyle.padding = new RectOffset(16, 16, 10, 10);
+                }
+                GUI.Box(new Rect(Screen.width * 0.08f, Screen.height * 0.03f, Screen.width * 0.84f, Screen.height * 0.22f),
+                    "New Super Lucky's Tale VR: VR DID NOT START. " + problem + " Press " + MenuKey + " for the mod menu.", bannerStyle);
+                return;
+            }
             if (VrActive() || !IsOpen || rt == null) return;
             float h = Screen.height * 0.8f, w = h * rt.width / rt.height;
             GUI.DrawTexture(new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h), rt);
@@ -376,6 +441,7 @@ namespace NSLTVR
         {
             tab = (tab + dir + Tabs.Count) % Tabs.Count;
             selected = 0;
+            Play(clickTab);
             Refresh();
         }
 
@@ -384,16 +450,25 @@ namespace NSLTVR
             var rows = Tabs[tab].Rows;
             if (selected >= rows.Count) return;
             var r = rows[selected];
-            if (r.Press != null) r.Press();
-            else if (r.Change != null) r.Change(1);
+            if (r.Press != null) { r.Press(); Play(clickChange); }
+            else if (r.Change != null) ChangeRow(r, 1);
+            else Play(clickRefuse);
             Refresh();
+        }
+
+        void ChangeRow(Row r, int dir)
+        {
+            if (r.Change == null) { Play(clickRefuse); return; }
+            string before = r.Value != null ? r.Value() : null;
+            r.Change(dir);
+            Play(r.Value != null && r.Value() == before ? clickRefuse : clickChange);  // at a limit nothing changes
         }
 
         void Step(int x, int y)
         {
             var rows = Tabs[tab].Rows;
-            if (y != 0) selected = (selected - y + rows.Count) % rows.Count;
-            else if (x != 0 && selected < rows.Count && rows[selected].Change != null) rows[selected].Change(x);
+            if (y != 0) { selected = (selected - y + rows.Count) % rows.Count; Play(clickMove); }
+            else if (x != 0 && selected < rows.Count) ChangeRow(rows[selected], x);
             else return;
             Refresh();
         }

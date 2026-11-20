@@ -108,6 +108,7 @@ namespace NSLTVR
         internal int EyeWidth, EyeHeight;
         internal string RuntimeName = "", HeadsetName = "";
         internal string StartProblem;
+        internal float StartProblemTime;
         bool nativeLoaded, active, made, wantShot, wantRecenter = true, autoRecentered, loggedView, runtimeRead;
         float focusedSince = -1f;
         IntPtr renderEvent;
@@ -279,6 +280,7 @@ namespace NSLTVR
                     var layers = new StringBuilder(512);
                     xFailedLayers(layers, layers.Capacity);
                     StartProblem = DescribeStartFailure(xLastError(), layers.ToString());
+                    StartProblemTime = Time.realtimeSinceStartup;
                     Plugin.Log.LogWarning("VR DID NOT START: " + StartProblem);
                     End();
                     yield break;

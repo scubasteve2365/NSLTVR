@@ -15,17 +15,18 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.9.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.10.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 9";
+        internal const string Version = "build 10";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
         static readonly System.Collections.Generic.HashSet<string> seenErrors = new System.Collections.Generic.HashSet<string>();
         ConfigEntry<bool> labCommands, autoStart, bloomOff;
         ConfigEntry<float> turnSpeed, resolution, ipdScale, hudWidth, hudX, hudY, hudDistance, menuWidth, menuX, menuY, menuDistance;
-        ConfigEntry<string> hudMode, menuKey, forcePreset;
+        ConfigEntry<string> hudMode, menuKey, forcePreset, picture;
+        ConfigEntry<int> clickVolume;
         string commandFile;
         int nextCommandCheck, nextSlowCheck;
         bool triedAutoStart;
@@ -58,6 +59,8 @@ namespace NSLTVR
             menuY = Config.Bind("Menu", "Y", DefMenuY, "Mod menu height from eye level in metres.");
             menuDistance = Config.Bind("Menu", "Distance", DefMenuDistance, "Mod menu distance in metres.");
             menuKey = Config.Bind("Menu", "Key", "Insert", "Keyboard key that opens and closes the mod menu (a Unity KeyCode name).");
+            clickVolume = Config.Bind("Menu", "ClickVolume", 2, "Menu click sounds: 0 off, 1 low, 2 medium, 3 high.");
+            picture = Config.Bind("Picture", "Picture", "Auto", "How the HUD, menu and title screens reach the headset: Auto, Steady or Panel. Auto uses Steady on Virtual Desktop and Panel on everything else.");
             commandFile = Path.Combine(Paths.GameRootPath, "vrlab_command.txt");
             Rig = gameObject.AddComponent<XrRig>();
             Rig.PluginDir = Path.GetDirectoryName(Info.Location);
@@ -67,7 +70,9 @@ namespace NSLTVR
             Menu = gameObject.AddComponent<MenuUI>();
             Menu.Version = "NSLT VR " + Version;
             Menu.VrActive = () => Rig.Running;
+            Menu.Volume = () => clickVolume.Value;
             Menu.Problem = () => Rig.StartProblem;
+            Menu.ProblemTime = () => Rig.StartProblemTime;
             try { Menu.MenuKey = (KeyCode)Enum.Parse(typeof(KeyCode), menuKey.Value, true); }
             catch (Exception) { Log.LogWarning("Menu key \"" + menuKey.Value + "\" is not a key name, using Insert"); Menu.MenuKey = KeyCode.Insert; }
             Rig.Menu = Menu;
@@ -133,6 +138,7 @@ namespace NSLTVR
             Rig.MenuWidth = menuWidth.Value; Rig.MenuX = menuX.Value; Rig.MenuY = menuY.Value; Rig.MenuDistance = menuDistance.Value;
             Effects.BloomOff = bloomOff.Value;
             RightStickTurnPatch.DegreesPerSecond = turnSpeed.Value;
+            Rig.PictureMode = picture.Value.Equals("Steady", StringComparison.OrdinalIgnoreCase) ? 1 : picture.Value.Equals("Panel", StringComparison.OrdinalIgnoreCase) ? 2 : 0;
         }
 
         static string M(float v) { return v.ToString("F2", CultureInfo.InvariantCulture) + " m"; }
@@ -156,6 +162,7 @@ namespace NSLTVR
         }
 
         static readonly string[] HudModes = { "Fixed", "FollowsHead", "Hidden" };
+        static readonly string[] PictureValues = { "Auto", "Steady", "Panel" }, ClickNames = { "Off", "Low", "Medium", "High" };
         static readonly string[] HudModeNames = { "Fixed", "Follows head", "Hidden" };
 
         void BuildMenu()
@@ -171,6 +178,17 @@ namespace NSLTVR
                 Help = () => "How sharp the game is drawn, as a share of what your headset asks for. Takes effect the next time you start the game. Running now: "
                     + (Rig.Running ? Rig.EyeWidth + " x " + Rig.EyeHeight : "VR not running") + " per eye. Next start: " + NextSize() + " per eye.",
             });
+            general.Rows.Add(new MenuUI.Row
+            {
+                Label = "Picture",
+                Value = () => PictureValues[Rig.PictureMode] + (Rig.PictureMode == 0 && Rig.Running ? " (" + (XrRig.AutoPicksSteady(Rig.RuntimeName) ? "Steady" : "Panel") + ")" : ""),
+                Change = dir => { picture.Value = PictureValues[(Rig.PictureMode + dir + 3) % 3]; PushSettings(); Log.LogInfo("MENU picture " + picture.Value); },
+                Help = () => Rig.PictureMode == 1 ? "Steady: the HUD, this menu and title screens are drawn into the 3D picture. Holds still on every headset, a little softer."
+                    : Rig.PictureMode == 2 ? "Panel: the headset software draws the HUD, menu and title screens as flat panels. Sharpest, but Virtual Desktop can stretch them while you turn your head."
+                    : "Auto: Steady on Virtual Desktop (Quest), Panel on everything else. Running now: " + (XrRig.AutoPicksSteady(Rig.RuntimeName) ? "Steady" : "Panel") + ".",
+            });
+            general.Rows.Add(new MenuUI.Row { Label = "Click sounds", Value = () => ClickNames[Mathf.Clamp(clickVolume.Value, 0, 3)],
+                Change = dir => { clickVolume.Value = Mathf.Clamp(clickVolume.Value + dir, 0, 3); Log.LogInfo("MENU click sounds " + clickVolume.Value); }, Help = () => "How loud this menu's clicks are, down to Off." });
             general.Rows.Add(new MenuUI.Row { Label = "Close", Press = () => Menu.Close(), Help = () => "Close the menu. B, Insert or holding both sticks also closes it." });
 
             var hud = new MenuUI.Tab { Name = "HUD" };
@@ -259,7 +277,7 @@ namespace NSLTVR
                 case "menu": Menu.LabKey(a.Length > 1 ? a[1] : "open"); break;
                 case "speedlog": Speed.Begin(a.Length > 1 ? F(a[1]) : 5f); break;
                 case "gfx": Probes.Graphics(); break;
-                case "picture": Rig.PictureMode = a[1] == "steady" ? 1 : a[1] == "panel" ? 2 : 0; Log.LogInfo("PICTURE lab override " + a[1]); break;
+                case "picture": picture.Value = a[1] == "steady" ? "Steady" : a[1] == "panel" ? "Panel" : "Auto"; PushSettings(); Log.LogInfo("PICTURE set " + picture.Value); break;
                 case "dump": Rig.Dump(a.Length > 1 ? a[1] : "dump"); break;
                 case "pink": Rig.Pink(int.Parse(a[1])); break;
                 case "canvases": Probes.Canvases(); break;
