@@ -15,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.6.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.7.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 6";
+        internal const string Version = "build 7";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -253,6 +253,7 @@ namespace NSLTVR
                 case "canvases": Probes.Canvases(); break;
                 case "track": StartCoroutine(Track(a.Length > 1 ? F(a[1]) : 3f)); break;
                 case "preferpad": PreferPadPatch.On = a[1] == "1"; Log.LogInfo("prefer pad " + PreferPadPatch.On); break;
+                case "fadetest": Playful.SuperLucky.Global.GlobalFadeController.RequestFadeOutFireAndForget(Rig); Log.LogInfo("lab: fade requested by the mod and never released"); break;
                 case "hud": Rig.HudMode = a[1] == "head" ? 1 : a[1] == "hidden" ? 2 : 0; break;
                 default: Log.LogWarning("unknown command " + a[0]); break;
             }

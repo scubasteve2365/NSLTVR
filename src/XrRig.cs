@@ -554,6 +554,21 @@ namespace NSLTVR
         bool fadeLogged, stuckLogged;
         float blackSince = -1f;
 
+        static readonly System.Reflection.FieldInfo fadeManagerField = AccessTools.Field(typeof(Playful.SuperLucky.Global.GlobalFadeController), "_fadeManager");
+        static readonly System.Reflection.FieldInfo lockListField = AccessTools.Field(typeof(Playful.SuperLucky.Utilities.ExistenceLock), "_lockList");
+        static Playful.SuperLucky.Utilities.ExistenceLock fadeLock(object unused) { return (Playful.SuperLucky.Utilities.ExistenceLock)fadeManagerField.GetValue(null); }
+
+        static string FadeHolders()
+        {
+            try
+            {
+                var list = lockListField.GetValue(fadeLock(null)) as System.Collections.Generic.List<UnityEngine.Object>;
+                if (list == null || list.Count == 0) return "nothing (fade not locked)";
+                return string.Join("; ", list.Select(o => o == null ? "a destroyed object" : o.GetType().Name + " " + ((o as Component) != null ? Probes.PathOf(((Component)o).transform) : o.name)).ToArray());
+            }
+            catch (Exception e) { return "unknown (" + e.Message + ")"; }
+        }
+
         void ReadFade()
         {
             fadeA = 0f;
@@ -570,8 +585,23 @@ namespace NSLTVR
             if (fadeA > 0.95f && playable) { if (blackSince < 0f) blackSince = Time.realtimeSinceStartup; } else blackSince = -1f;
             if (blackSince > 0f && Time.realtimeSinceStartup - blackSince > 3f)
             {
-                if (!stuckLogged) { stuckLogged = true; Plugin.Log.LogWarning("FADE stuck black for 3 s while Lucky is playable: not drawn over the eyes"); try { g.LogLocks(); } catch (Exception) { } }
+                if (!stuckLogged) { stuckLogged = true; Plugin.Log.LogWarning("FADE stuck black for 3 s while Lucky is playable: not drawn over the eyes; held by " + FadeHolders()); }
                 fadeA = 0f;
+                // Recovery: the game refuses its pause menu while a fade is held (GameHook), and a black screen while Lucky
+                // is playable never happens in the flat game. After 5 s the stale holders are released and the game fades in.
+                if (Time.realtimeSinceStartup - blackSince > 5f)
+                {
+                    Plugin.Log.LogWarning("FADE released after 5 s black while playable (holders were: " + FadeHolders() + ")");
+                    try
+                    {
+                        var fl = fadeLock(null);
+                        if (fl.IsLocked) fl.RemoveAllLocks();
+                        else AccessTools.Method(typeof(Playful.SuperLucky.Global.GlobalFadeController), "OnFadeStateChanged").Invoke(g, new object[] { false });  // faded with no holder: start the fade-in
+                    }
+                    catch (Exception e) { Plugin.Log.LogWarning("FADE release failed: " + e.Message); }
+                    blackSince = -1f;
+                    stuckLogged = false;
+                }
             }
             if (!fadeLogged && fadeA > 0.5f) { fadeLogged = true; Plugin.Log.LogInfo("FADE the game's fade image is shown over the eyes (alpha " + fadeA.ToString("F2", CultureInfo.InvariantCulture) + ")"); }
         }
