@@ -2,6 +2,8 @@ NSLTVR
 VR mod for New Super Lucky's Tale (Steam).
 Native stereo, both eyes drawn from the same game moment, using the game's own VR camera from Lucky's Tale VR: each level is a toy world around you, and Lucky runs through it in front of you. Played seated with a gamepad.
 
+Support: if you enjoy it, you can buy me a coffee at https://buymeacoffee.com/scubasteve2365
+
 You need
 - The game on Steam.
 - A PC VR headset with an OpenXR runtime: SteamVR set as your OpenXR runtime in SteamVR settings, or Virtual Desktop's VDXR. The installer warns you if none is set.
@@ -67,5 +69,6 @@ Notes
 - The mod turns off bloom and god rays, which look different in each eye.
 - Settings are saved in BepInEx\config\com.scubasteve2365.nsltvr.cfg in the game folder.
 
+Support the mod: https://buymeacoffee.com/scubasteve2365
 Version 1.0. Credits and licences are in THIRD-PARTY-NOTICES.txt. NSLTVR is MIT licensed, by scubasteve2365.
 This is a fan mod, not made or approved by Playful Studios.

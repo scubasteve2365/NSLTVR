@@ -1,0 +1,32 @@
+**NSLTVR 1.0: New Super Lucky's Tale in VR, on the game's own Lucky's Tale VR camera (free mod, OpenXR)**
+
+New Super Lucky's Tale grew out of Lucky's Tale VR, and it still carries that game's VR camera. This mod switches it back on and renders both eyes itself through OpenXR. Every level becomes a toy world built around you, and Lucky runs through it right in front of you. True native stereo: both eyes are drawn from the same game moment, with no alternate-eye rendering and no warping. Play it seated with a gamepad.
+
+**What it does**
+- Native stereo through OpenXR, using the game's own per-level VR camera settings from Lucky's Tale VR
+- Normal game speed at any headset rate (72, 90, 120 Hz), the game keeps its own 60 updates a second
+- HUD, pause book, dialogue, costume shop, title and loading screens all shown in the headset
+- In-headset settings menu in the game's own style. Hold both sticks for half a second, or press Insert, to open it
+- Settings for resolution, HUD placement (Fixed, Follows head, Hidden), panel style, click sounds, and one-press "VR baseline" and "best VR performance" game settings
+- Bloom and god rays turned off, since they look different in each eye
+- If VR does not start, a message on your monitor says why and what to do
+- Installs with one bat file, and uninstalls the same way. No game files are changed
+
+**What you need**
+- The Steam version of New Super Lucky's Tale
+- A PC VR headset with OpenXR: SteamVR set as your OpenXR runtime, or Virtual Desktop's VDXR
+- A gamepad. **DualSense users:** turn on Steam Input for the game so Steam maps it as an Xbox controller
+
+**Please read**
+- Tested in real headsets on two setups: Pimax Dream Air through SteamVR at 72 Hz, and Meta Quest 3 through Virtual Desktop's VDXR at 90 Hz. Other headsets and graphics cards should work but have not been tried. Reports are welcome, with BepInEx\LogOutput.log from the game folder.
+- The camera is the game's own VR camera, so the right stick does not turn it.
+- The mod is not signed, so Windows may warn you, and Smart App Control can block it. The README covers this.
+
+**Install**
+Unzip it, double click "Install NSLTVR.bat", and type 1. Start SteamVR or connect Virtual Desktop, then start New Super Lucky's Tale from Steam.
+
+**Download:** https://github.com/scubasteve2365/NSLTVR/releases/tag/v1.0
+
+**Support the mod:** if you enjoy it, you can buy me a coffee at https://buymeacoffee.com/scubasteve2365
+
+By scubasteve2365. MIT licence. Uses BepInEx, the Khronos OpenXR loader and MinHook. This is a fan mod, not made or approved by Playful Studios.
