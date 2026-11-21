@@ -15,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.14.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "0.15.0")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "build 14";
+        internal const string Version = "build 15";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -84,6 +84,7 @@ namespace NSLTVR
             var harmony = new Harmony("com.scubasteve2365.nsltvr");
             harmony.PatchAll(typeof(Plugin).Assembly);
             try { FlatCameraGuard.Apply(harmony); } catch (Exception e) { Log.LogError("flat-camera guard failed: " + e); }
+            try { CostumeFix.Apply(harmony); } catch (Exception e) { Log.LogError("costume shop fix failed: " + e); }
             // Game errors (exceptions in its coroutines) only reach Unity's own log, which RigA's log fetch cannot read.
             // The first 30 distinct ones are copied here with their stack.
             Application.logMessageReceived += (msg, stack, type) =>
@@ -308,6 +309,7 @@ namespace NSLTVR
                 case "menu": Menu.LabKey(a.Length > 1 ? a[1] : "open"); break;
                 case "speedlog": Speed.Begin(a.Length > 1 ? F(a[1]) : 5f); break;
                 case "gfx": Probes.Graphics(); break;
+                case "costume": CostumeFix.Lab(a.Length > 1 ? a[1] : "open"); break;
                 case "settings": LoadGameSettings(a.Length > 1 && a[1] == "best"); break;
                 case "picture": picture.Value = a[1] == "steady" ? "Steady" : a[1] == "panel" ? "Panel" : "Auto"; PushSettings(); Log.LogInfo("PICTURE set " + picture.Value); break;
                 case "dump": Rig.Dump(a.Length > 1 ? a[1] : "dump"); break;

@@ -24,8 +24,8 @@ namespace NSLTVR
             "Playful.SuperLucky.Gameplay.Interactables.Carryable", "Playful.SuperLucky.Gameplay.Minigames.Marble.MarbleController",
             "Playful.SuperLucky.Gameplay.Player.PlayerController", "Playful.SuperLucky.Sequences.CinematicSequence",
             "Playful.SuperLucky.Sequences.CutsceneSequence", "Playful.SuperLucky.Timeline.TimelineHelper",
-            "Playful.SuperLucky.UI.BookInteractHandler", "Playful.SuperLucky.UI.UIScreenCostume",
-            "Playful.Unity.DesignerTools.TransforminatorEventListener", "Playful.Unity.Events.SharedTriggerable",
+            "Playful.SuperLucky.Ui.BookInteractHandler", "Playful.SuperLucky.Ui.UIScreenCostume",
+            "Playful.Unity.DesignerTools.TransforminatorEventListener", "Playful.Unity.Events.SharedTriggerable", "Playful.Unity.Events.SharedTriggerableReaction",
         };
 
         static Dictionary<MethodInfo, MethodInfo> map;
@@ -72,7 +72,7 @@ namespace NSLTVR
             }
         }
 
-        static bool Ok(FramingCamera c) { if (c != null) return true; if (Calls++ < 10) Plugin.Log.LogInfo("HOOK skipped a flat-camera call (no flat camera with the VR rig)"); return false; }
+        static bool Ok(FramingCamera c) { if (c != null && !Playful.SuperLucky.Global.GameConfiguration.InVrCameraMode()) return true; if (Calls++ < 10) Plugin.Log.LogInfo("HOOK skipped a flat-camera call (no flat camera with the VR rig)"); return false; }
         static void Safe_RemoveAllInputRotation(FramingCamera c, bool isCutscene) { if (Ok(c)) c.RemoveAllInputRotation(isCutscene); }
         static void Safe_LevelStartCinemachineHeadlook(FramingCamera c) { if (Ok(c)) c.LevelStartCinemachineHeadlook(); }
         static void Safe_ResetLeadOffset(FramingCamera c, bool smoothReset) { if (Ok(c)) c.ResetLeadOffset(smoothReset); }
