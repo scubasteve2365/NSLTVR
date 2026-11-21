@@ -92,6 +92,12 @@ namespace NSLTVR
         {
             var shop = UIScreenCostume.Instance;
             if (shop == null) { Plugin.Log.LogInfo("COSTUME no shop instance"); return; }
+            if (what == "cams")
+            {
+                foreach (var c in Camera.allCameras)
+                    Plugin.Log.LogInfo("COSTUME camera " + Probes.PathOf(c.transform) + " depth " + c.depth + " mask 0x" + c.cullingMask.ToString("X") + " target " + (c.targetTexture != null ? c.targetTexture.name + " " + c.targetTexture.width + "x" + c.targetTexture.height : "window") + " clear " + c.clearFlags + " layer " + c.gameObject.layer);
+                return;
+            }
             if (what == "close") shop.Hide(false);
             else AccessTools.Method(typeof(UIScreenCostume), "Show").Invoke(shop, null);
             Plugin.Log.LogInfo("COSTUME " + what + "; Camera.main is " + (Camera.main != null ? Camera.main.name + " (" + Camera.main.transform.parent?.name + ")" : "none"));

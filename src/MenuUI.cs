@@ -50,48 +50,74 @@ namespace NSLTVR
         internal Func<bool> VrActive = () => false;
         internal Action Closed;
         internal Func<int> Volume = () => 2;  // 0 off .. 3 high
-        AudioSource audioSource;
-        AudioClip clickMove, clickChange, clickTab, clickOpen, clickClose, clickRefuse;
+        Click clickMove, clickChange, clickTab, clickOpen, clickClose, clickRefuse;
 
         // Short generated tones (no game audio files), ported from CupheadVR, pitched a little higher and rounder for NSLT.
+        // The game plays all its sound through Wwise and Unity's own audio is silent in this game (Steve, build 15: no clicks
+        // through an AudioSource), so the clicks go straight to Windows (winmm PlaySound from memory, asynchronous).
         void MakeSounds()
         {
-            audioSource = gameObject.AddComponent<AudioSource>();
-            audioSource.spatialBlend = 0f;
-            audioSource.ignoreListenerPause = true;
-            audioSource.ignoreListenerVolume = true;
-            audioSource.playOnAwake = false;
-            clickMove = Tone("move", 990f, 1050f, 0.035f);
-            clickChange = Tone("change", 1320f, 1480f, 0.045f);
-            clickTab = Tone("tab", 740f, 1110f, 0.07f);
-            clickOpen = Tone("open", 590f, 1180f, 0.12f);
-            clickClose = Tone("close", 1180f, 590f, 0.12f);
-            clickRefuse = Tone("refuse", 220f, 190f, 0.14f);
+            clickMove = new Click(990f, 1050f, 0.035f);
+            clickChange = new Click(1320f, 1480f, 0.045f);
+            clickTab = new Click(740f, 1110f, 0.07f);
+            clickOpen = new Click(590f, 1180f, 0.12f);
+            clickClose = new Click(1180f, 590f, 0.12f);
+            clickRefuse = new Click(220f, 190f, 0.14f);
         }
 
-        static AudioClip Tone(string name, float f0, float f1, float seconds)
+        sealed class Click
         {
-            const int rate = 44100;
-            int n = (int)(rate * seconds);
-            var data = new float[n];
-            double phase = 0;
-            for (int i = 0; i < n; i++)
+            const int Rate = 44100;
+            readonly float[] data;
+            readonly IntPtr[] wav = new IntPtr[4];  // per volume, unmanaged so PlaySound can read it after the call returns
+
+            internal Click(float f0, float f1, float seconds)
             {
-                float t = (float)i / n;
-                phase += 2 * Math.PI * Mathf.Lerp(f0, f1, t) / rate;
-                float env = Mathf.Min(1f, i / (rate * 0.004f)) * (1f - t) * (1f - t);
-                data[i] = (float)(Math.Sin(phase) + 0.25 * Math.Sin(2 * phase)) * env * 0.4f;
+                int n = (int)(Rate * seconds);
+                data = new float[n];
+                double phase = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    float t = (float)i / n;
+                    phase += 2 * Math.PI * Mathf.Lerp(f0, f1, t) / Rate;
+                    float env = Mathf.Min(1f, i / (Rate * 0.004f)) * (1f - t) * (1f - t);
+                    data[i] = (float)(Math.Sin(phase) + 0.25 * Math.Sin(2 * phase)) * env * 0.4f;
+                }
             }
-            var clip = AudioClip.Create("NSLTVR " + name, n, 1, rate, false);
-            clip.SetData(data, 0);
-            return clip;
+
+            internal IntPtr Wav(int volume)
+            {
+                if (wav[volume] != IntPtr.Zero) return wav[volume];
+                float gain = volume == 1 ? 0.25f : volume == 2 ? 0.5f : 1f;
+                int bytes = data.Length * 2;
+                var b = new byte[44 + bytes];
+                Action<int, string> str = (o, x) => { for (int i = 0; i < 4; i++) b[o + i] = (byte)x[i]; };
+                Action<int, int> i32 = (o, x) => { b[o] = (byte)x; b[o + 1] = (byte)(x >> 8); b[o + 2] = (byte)(x >> 16); b[o + 3] = (byte)(x >> 24); };
+                str(0, "RIFF"); i32(4, 36 + bytes); str(8, "WAVE"); str(12, "fmt "); i32(16, 16);
+                b[20] = 1; b[22] = 1; i32(24, Rate); i32(28, Rate * 2); b[32] = 2; b[34] = 16;
+                str(36, "data"); i32(40, bytes);
+                for (int i = 0; i < data.Length; i++)
+                {
+                    short v = (short)Mathf.Clamp(data[i] * gain * 32767f, -32768f, 32767f);
+                    b[44 + i * 2] = (byte)v; b[45 + i * 2] = (byte)(v >> 8);
+                }
+                wav[volume] = Marshal.AllocHGlobal(b.Length);
+                Marshal.Copy(b, 0, wav[volume], b.Length);
+                return wav[volume];
+            }
         }
 
-        void Play(AudioClip clip)
+        [DllImport("winmm.dll", SetLastError = false)]
+        static extern bool PlaySound(IntPtr sound, IntPtr module, uint flags);
+        const uint SndAsync = 0x0001, SndNoDefault = 0x0002, SndMemory = 0x0004;
+        int soundErrors, soundLogs;
+
+        void Play(Click clip)
         {
             int v = Volume != null ? Volume() : 2;
-            if (audioSource == null || clip == null || v <= 0) return;
-            audioSource.PlayOneShot(clip, v == 1 ? 0.25f : v == 2 ? 0.5f : 1f);
+            if (clip == null || v <= 0) return;
+            try { bool ok = PlaySound(clip.Wav(Mathf.Clamp(v, 1, 3)), IntPtr.Zero, SndAsync | SndNoDefault | SndMemory); if (soundLogs++ < 3) Plugin.Log.LogInfo("MENU click sound played by Windows: " + ok + " (Unity audio " + (AudioSettings.GetConfiguration().sampleRate) + " Hz, listeners " + FindObjectsOfType<AudioListener>().Length + ")"); }
+            catch (Exception e) { if (soundErrors++ == 0) Plugin.Log.LogWarning("MENU click sound failed: " + e.Message); }
         }
         internal KeyCode MenuKey = KeyCode.Insert;
         internal bool IsOpen { get; private set; }

@@ -696,7 +696,7 @@ namespace NSLTVR
         // In gameplay the game's own HUD camera draws into the HUD texture instead of the window (transparent background).
         // With no game camera (title, loading, videos) every camera that draws to the window is drawn into it instead, opaque,
         // and it shows as a big screen in front of the player.
-        bool screenMode;
+        bool screenMode, gameUiScreen;
         int hudErrors;
         int hudLogFrame;
 
@@ -722,11 +722,32 @@ namespace NSLTVR
             if (screenMode != wasScreen) Plugin.Log.LogInfo(screenMode ? "SCREEN no game camera: the game's screen shows on a panel" : "SCREEN game camera back: HUD panel");
             if (screenMode)
             {
+                // A game screen shown by its own UI camera while the game camera is off (the costume shop): keep that camera
+                // drawing into the panel by itself, on opaque black. Rendering it by hand drew it upside down (Steve, build 15).
+                if (uiCams.Any(c => c != null && c.isActiveAndEnabled))
+                {
+                    if (!gameUiScreen) { gameUiScreen = true; Plugin.Log.LogInfo("SCREEN a game UI screen with no game camera: its own camera draws the panel"); }
+                    if (uiCam != null) uiCam.backgroundColor = Color.black;
+                    DrawGameUi(false);
+                    // Other cameras drawing on top of it to the window (the shop's PaperDollCamera shows Lucky) go into the panel too.
+                    float minDepth = uiCams.Where(c => c != null && c.isActiveAndEnabled).Min(c => c.depth);
+                    foreach (var c in Camera.allCameras)
+                    {
+                        if (c == null || c.targetTexture != null || c.cullingMask == 0 || c.depth < minDepth || c.name.StartsWith("NSLTVR", StringComparison.Ordinal) || screenCams.Contains(c)) continue;
+                        c.targetTexture = hudRt;
+                        screenCams.Add(c);
+                        Plugin.Log.LogInfo("SCREEN camera " + Probes.PathOf(c.transform) + " (depth " + c.depth + ") also draws into the panel");
+                    }
+                    Flip(hudRt, hudOut, false);
+                    return true;
+                }
+                EndGameUiScreen();
                 ReleaseUiCams();
                 DrawScreen();
                 Flip(hudRt, hudOut, false);
                 return true;
             }
+            if (gameUiScreen) EndGameUiScreen();
             bool hudOn = hudCam != null && hudCam.isActiveAndEnabled;
             if (!DrawGameUi(hudOn && HudMode != 2)) return false;
             Flip(hudRt, hudOut, false);
@@ -796,6 +817,16 @@ namespace NSLTVR
         }
 
         // Back to the screen panel (title, loading): the game's UI cameras draw to the window again, so the screen copy has them.
+        readonly System.Collections.Generic.List<Camera> screenCams = new System.Collections.Generic.List<Camera>();
+
+        void EndGameUiScreen()
+        {
+            gameUiScreen = false;
+            if (uiCam != null) uiCam.backgroundColor = new Color(0f, 0f, 0f, 0f);
+            foreach (var c in screenCams) if (c != null && c.targetTexture == hudRt) c.targetTexture = null;
+            screenCams.Clear();
+        }
+
         void ReleaseUiCams()
         {
             foreach (var c in uiCams) if (c != null) c.targetTexture = null;
