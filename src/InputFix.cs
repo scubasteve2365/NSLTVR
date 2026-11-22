@@ -116,7 +116,7 @@ namespace NSLTVR
         // From XrRig.Origin: turn the eye origin around Lucky, only for the game's own VR camera.
         internal static void Apply(Camera cam, ref Vector3 pos, ref Quaternion rot)
         {
-            if (Yaw == 0f || cam == null) return;
+            if (Yaw == 0f || cam == null || CameraTurn.On) return;
             var cm = CameraManager.Instance;
             var player = Playful.SuperLucky.Gameplay.Player.PlayerController.Instance;
             if (cm == null || player == null || cm.GetCameraGameObject() != cam.gameObject) return;
@@ -129,7 +129,7 @@ namespace NSLTVR
         // PlayerInputManager.Update takes stick directions from the camera's right vector; turn it with the view.
         internal static Vector3 TurnInput(Vector3 right)
         {
-            return Yaw == 0f ? right : Quaternion.Euler(0f, Yaw, 0f) * right;
+            return Yaw == 0f || CameraTurn.On ? right : Quaternion.Euler(0f, Yaw, 0f) * right;
         }
     }
 

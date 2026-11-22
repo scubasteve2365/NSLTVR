@@ -321,6 +321,14 @@ namespace NSLTVR
                 case "fakehead": Rig.LabHead = new Vector3(F(a[1]), F(a[2]), F(a[3])); break;
                 case "recenter": Rig.Recenter(); CameraOrbit.Reset(); break;
                 case "orbit": CameraOrbit.Yaw = F(a[1]); Log.LogInfo("ORBIT lab set " + CameraOrbit.Yaw); break;
+                case "turnmode": CameraTurn.Set(a[1] == "camera"); break;
+                case "turnzone": CameraTurn.Zones(a.Length > 1 ? a[1] : null); break;
+                case "levels":
+                    for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCountInBuildSettings; i++)
+                        Log.LogInfo("LEVELS " + i + " " + Playful.SuperLucky.Global.GameScenesInterface.GetScenePathByBuildIndex(i));
+                    foreach (var f in Playful.SuperLucky.Global.GameScenesInterface.GetGameSceneFilesEnumeration()) Log.LogInfo("LEVELS file " + f);
+                    break;
+                case "level": Log.LogInfo("LEVEL loading " + a[1]); Game.LoadLevel(a[1]); break;
                 case "menu": Menu.LabKey(a.Length > 1 ? a[1] : "open"); break;
                 case "speedlog": Speed.Begin(a.Length > 1 ? F(a[1]) : 5f); break;
                 case "gfx": Probes.Graphics(); break;
