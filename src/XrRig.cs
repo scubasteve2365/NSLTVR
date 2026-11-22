@@ -427,6 +427,7 @@ namespace NSLTVR
                 lastRig = "Flat";
             }
             if (IpdOverride > 0f) scale = IpdOverride;
+            if (Plugin.WantVrRig) CameraOrbit.Apply(cam, ref pos, ref rot);
             if (Mathf.Abs(scale - lastScale) > 0.0005f)
             {
                 lastScale = scale;

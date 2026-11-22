@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Linq;
 using HarmonyLib;
 using Playful.SuperLucky.Camera;
@@ -72,27 +75,78 @@ namespace NSLTVR
         }
     }
 
-    // Right stick: turn the VR camera rig around Lucky. CurveTrackingCamera places the camera at Lucky plus its own rotation
-    // times the zone's offset, so turning the rig's yaw orbits it around him, and the left stick follows (the game takes
-    // stick directions from the camera's right vector).
-    [HarmonyPatch(typeof(CurveTrackingCamera), nameof(CurveTrackingCamera.DoMotorUpdate))]
-    static class RightStickTurnPatch
+    // Right stick camera (1.01, Steve): turn the view around Lucky.
+    // Build 4 rotated the game's VR camera motor (CurveTrackingCamera) itself, and that went wrong: the motor assumes it faces
+    // +z (its "too close" check measures only the z distance to Lucky and pushes the camera back along its own forward, so a
+    // turned camera kept backing away: Steve's "zooms out really far"), and camera zones clamp its position to boxes made for
+    // the front view. Now the game's camera is left exactly as the game moves it, and only the view is turned: the eyes orbit
+    // Lucky by the turn angle when they are drawn, and the left stick is turned by the same angle, so up still runs away from
+    // you. Cutscene cameras and 2D sections are never turned (2D sections ease back to straight).
+    internal static class CameraOrbit
     {
-        internal static float DegreesPerSecond = 0f;
+        internal static float DegreesPerSecond = 90f;
+        internal static float Yaw;
+        internal static bool MenuOpen;
         static int logged;
+        static float lastLog;
 
-        static void Prefix(CurveTrackingCamera __instance)
+        internal static void Tick()
         {
-            if (DegreesPerSecond <= 0f || !GameConfiguration.InVrCameraMode()) return;
+            if (DegreesPerSecond <= 0f || !GameConfiguration.InVrCameraMode()) { Yaw = 0f; return; }
             var player = Playful.SuperLucky.Gameplay.Player.PlayerController.Instance;
-            if (player == null || player.Input == null || !player.Input.InputEnabled) return;
+            if (player == null) return;
+            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            if (player.Use2DMovement()) { Yaw = Mathf.MoveTowardsAngle(Yaw, 0f, 180f * dt); return; }
+            if (MenuOpen || player.Input == null || !player.Input.InputEnabled) return;
             float x = GlobalInputManager.RightStick.Value.x;
             if (Mathf.Abs(x) < 0.2f) return;
             var settings = PersistentSettings.Instance;
             if (settings != null && settings.HorizontalCameraInputInverted) x = -x;
-            float sign = Mathf.Sign(x), mag = (Mathf.Abs(x) - 0.2f) / 0.8f;
-            __instance.transform.Rotate(Vector3.up, sign * mag * DegreesPerSecond * Time.unscaledDeltaTime, Space.World);
-            if (logged++ == 0) Plugin.Log.LogInfo("HOOK CurveTrackingCamera: right stick turns the VR camera around Lucky (" + DegreesPerSecond + " degrees a second at full tilt)");
+            float mag = (Mathf.Abs(x) - 0.2f) / 0.8f;
+            Yaw = Mathf.Repeat(Yaw + Mathf.Sign(x) * mag * mag * DegreesPerSecond * dt + 180f, 360f) - 180f;
+            if (logged++ == 0 || Time.unscaledTime > lastLog + 2f)
+            {
+                lastLog = Time.unscaledTime;
+                Plugin.Log.LogInfo(string.Format(CultureInfo.InvariantCulture, "ORBIT right stick turns the view around Lucky: {0:F0} degrees ({1} degrees a second at full tilt)", Yaw, DegreesPerSecond));
+            }
+        }
+
+        internal static void Reset() { if (Yaw != 0f) Plugin.Log.LogInfo("ORBIT view turned back to the game's own camera"); Yaw = 0f; }
+
+        // From XrRig.Origin: turn the eye origin around Lucky, only for the game's own VR camera.
+        internal static void Apply(Camera cam, ref Vector3 pos, ref Quaternion rot)
+        {
+            if (Yaw == 0f || cam == null) return;
+            var cm = CameraManager.Instance;
+            var player = Playful.SuperLucky.Gameplay.Player.PlayerController.Instance;
+            if (cm == null || player == null || cm.GetCameraGameObject() != cam.gameObject) return;
+            var q = Quaternion.Euler(0f, Yaw, 0f);
+            var pivot = player.transform.position;
+            pos = pivot + q * (pos - pivot);
+            rot = q * rot;
+        }
+
+        // PlayerInputManager.Update takes stick directions from the camera's right vector; turn it with the view.
+        internal static Vector3 TurnInput(Vector3 right)
+        {
+            return Yaw == 0f ? right : Quaternion.Euler(0f, Yaw, 0f) * right;
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerInputManager), "Update")]
+    static class OrbitInputPatch
+    {
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> code)
+        {
+            var getRight = AccessTools.PropertyGetter(typeof(Transform), nameof(Transform.right));
+            var turn = AccessTools.Method(typeof(CameraOrbit), nameof(CameraOrbit.TurnInput));
+            int n = 0;
+            foreach (var c in code)
+            {
+                yield return c;
+                if (n == 0 && c.operand is MethodInfo mi && mi == getRight) { n++; yield return new CodeInstruction(OpCodes.Call, turn); }
+            }
+            Plugin.Log.LogInfo("HOOK PlayerInputManager.Update: stick directions follow the right stick camera (" + n + " place)");
         }
     }
 }

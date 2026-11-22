@@ -26,7 +26,8 @@ On a keyboard: arrow keys move and change, Enter selects, Esc closes, Page Up an
 Each setting has a short explanation at the bottom of the menu.
 
 General tab
-- Recenter: puts the view, the HUD and the menu straight ahead of where you face. Your headset's own recenter does the same.
+- Recenter: puts the view, the HUD and the menu straight ahead of where you face, and turns the camera back to the game's own view. Your headset's own recenter does the same.
+- Right stick camera: Off, Slow, Medium (default) or Fast. The right stick turns the view around Lucky, and the left stick turns with it. 2D sections and cutscenes always use the game's own view.
 - Resolution: how sharp the game is drawn, as a share of what your headset asks for. Takes effect the next time you start the game.
 - Picture: how the HUD, the menu and the title screens reach the headset. Auto uses Steady on Virtual Desktop and Panel on everything else. Steady holds still when you turn your head. Panel can look a little sharper.
 - Click sounds: how loud the menu clicks are, down to Off.
@@ -60,7 +61,7 @@ Pimax Dream Air through SteamVR at 72 Hz, and Meta Quest 3 through Virtual Deskt
 Known limits
 - Steam version only.
 - No motion controls. A gamepad is required.
-- The camera follows the game's own VR rig from Lucky's Tale VR, so the right stick does not turn the camera.
+- Levels were built to be seen from the front. With the right stick camera you may see unfinished backs of scenery from other angles.
 - No DLSS or other upscaler. The game is light and does not need one.
 - While VR runs, the game window on your monitor is 1920x1080.
 
@@ -70,5 +71,5 @@ Notes
 - Settings are saved in BepInEx\config\com.scubasteve2365.nsltvr.cfg in the game folder.
 
 Support the mod: https://buymeacoffee.com/scubasteve2365
-Version 1.0. Credits and licences are in THIRD-PARTY-NOTICES.txt. NSLTVR is MIT licensed, by scubasteve2365.
+Version 1.01. Credits and licences are in THIRD-PARTY-NOTICES.txt. NSLTVR is MIT licensed, by scubasteve2365.
 This is a fan mod, not made or approved by Playful Studios.

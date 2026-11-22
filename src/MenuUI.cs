@@ -35,7 +35,7 @@ namespace NSLTVR
         const int Layer = 31;
         const float HoldToOpen = 0.5f;
         internal const int TexW = 1024, TexH = 800;
-        const int MaxRows = 7;
+        const int MaxRows = 8;
         static readonly Color Card = new Color(0.25f, 0.16f, 0.45f, 1f);
         static readonly Color CardDark = new Color(0.17f, 0.10f, 0.33f, 1f);
         static readonly Color Edge = new Color(0.98f, 0.80f, 0.20f, 1f);
@@ -230,9 +230,9 @@ namespace NSLTVR
             for (int i = 0; i < MaxRows; i++)
             {
                 float y = RowY(i);
-                rowBar[i] = Img(CardDark, 900, 52, 0, y);
-                labels[i] = Txt(font, 32, Text, TextAnchor.MiddleLeft, 560, 52, -150, y);
-                values[i] = Txt(font, 32, Text, TextAnchor.MiddleRight, 420, 52, 225, y);
+                rowBar[i] = Img(CardDark, 900, 46, 0, y);
+                labels[i] = Txt(font, 30, Text, TextAnchor.MiddleLeft, 560, 46, -150, y);
+                values[i] = Txt(font, 30, Text, TextAnchor.MiddleRight, 420, 46, 225, y);
             }
             Img(CardDark, 900, 124, 0, -258);
             Img(Gold, 6, 124, -447, -258);
@@ -249,7 +249,7 @@ namespace NSLTVR
             return true;
         }
 
-        static float RowY(int row) { return 205f - row * 56f; }
+        static float RowY(int row) { return 208f - row * 50f; }
 
         Image Img(Color c, float w, float h, float x, float y)
         {

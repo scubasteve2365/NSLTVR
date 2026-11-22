@@ -15,10 +15,10 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "1.0.0")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "1.0.1")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "1.0";
+        internal const string Version = "1.01";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
@@ -45,7 +45,7 @@ namespace NSLTVR
             forcePreset = Config.Bind("Lab", "ForcePreset", "", "Lab only: put the game on this graphics preset at start (graphics_low, graphics_medium, ...). Empty leaves your settings alone.");
             ipdScale = Config.Bind("Lab", "IpdOverride", 0f, "0 uses the game's own camera scale (zone IPDScale). Above 0, use this scale instead.");
             autoStart = Config.Bind("VR", "AutoStart", true, "Start VR by itself once the game is running.");
-            turnSpeed = Config.Bind("VR", "RightStickTurn", 0f, "Right stick turns the camera around Lucky, in degrees a second at full tilt. 0 is off (default): the VR camera was not made to turn and pulled far away when it did (build 4).");
+            turnSpeed = Config.Bind("VR", "RightStickCamera", 90f, "Right stick turns the view around Lucky, in degrees a second at full tilt. 0 is off. 60 slow, 90 medium, 135 fast.");
             CameraRig = Config.Bind("VR", "CameraRig", "VR", "VR: the camera rig left over from Lucky's Tale VR. Flat: the game's normal camera. Read at game start.");
             resolution = Config.Bind("VR", "Resolution", 1.0f, "Eye size as a share of what the headset asks for. 1 is 100%. Used from the next start.");
             bloomOff = Config.Bind("Picture", "BloomOff", true, "Turn off the game's bloom and god rays, which look different in each eye.");
@@ -113,6 +113,8 @@ namespace NSLTVR
                 Rig.Begin();
             }
             PreferPadPatch.Tick();
+            CameraOrbit.MenuOpen = Menu != null && Menu.IsOpen;
+            CameraOrbit.Tick();
             if (Time.frameCount >= nextSlowCheck)
             {
                 nextSlowCheck = Time.frameCount + 120;
@@ -138,7 +140,8 @@ namespace NSLTVR
             Rig.HudWidth = hudWidth.Value; Rig.HudX = hudX.Value; Rig.HudY = hudY.Value; Rig.HudDistance = hudDistance.Value;
             Rig.MenuWidth = menuWidth.Value; Rig.MenuX = menuX.Value; Rig.MenuY = menuY.Value; Rig.MenuDistance = menuDistance.Value;
             Effects.BloomOff = bloomOff.Value;
-            RightStickTurnPatch.DegreesPerSecond = turnSpeed.Value;
+            CameraOrbit.DegreesPerSecond = turnSpeed.Value;
+            if (turnSpeed.Value <= 0f) CameraOrbit.Reset();
             Rig.PictureMode = picture.Value.Equals("Steady", StringComparison.OrdinalIgnoreCase) ? 1 : picture.Value.Equals("Panel", StringComparison.OrdinalIgnoreCase) ? 2 : 0;
         }
 
@@ -163,6 +166,9 @@ namespace NSLTVR
         }
 
         static readonly string[] HudModes = { "Fixed", "FollowsHead", "Hidden" };
+        static readonly float[] TurnSpeeds = { 0f, 60f, 90f, 135f };
+        static float TurnStep(float v) { float best = TurnSpeeds[0]; foreach (var t in TurnSpeeds) if (Mathf.Abs(t - v) < Mathf.Abs(best - v)) best = t; return best; }
+        static string TurnName(float v) { float t = TurnStep(v); return t <= 0f ? "Off" : t <= 60f ? "Slow" : t <= 90f ? "Medium" : "Fast"; }
         string armed, lastSettingsResult;
         float armedUntil;
 
@@ -196,8 +202,16 @@ namespace NSLTVR
         void BuildMenu()
         {
             var general = new MenuUI.Tab { Name = "General" };
-            general.Rows.Add(new MenuUI.Row { Label = "Recenter", Press = () => { Rig.Recenter(); Log.LogInfo("MENU recenter"); },
-                Help = () => "Press A to put the view, the HUD and this menu straight ahead of where you face now. Your headset's own recenter does the same." });
+            general.Rows.Add(new MenuUI.Row { Label = "Recenter", Press = () => { Rig.Recenter(); CameraOrbit.Reset(); Log.LogInfo("MENU recenter"); },
+                Help = () => "Press A to put the view, the HUD and this menu straight ahead of where you face now, and turn the camera back to the game's own view. Your headset's own recenter does the same." });
+            general.Rows.Add(new MenuUI.Row
+            {
+                Label = "Right stick camera",
+                Value = () => TurnName(turnSpeed.Value),
+                Change = dir => { int i = Mathf.Clamp(Array.IndexOf(TurnSpeeds, TurnStep(turnSpeed.Value)) + dir, 0, TurnSpeeds.Length - 1); turnSpeed.Value = TurnSpeeds[i]; PushSettings(); Log.LogInfo("MENU right stick camera " + turnSpeed.Value); },
+                Help = () => turnSpeed.Value <= 0f ? "Off: the right stick does nothing, and the camera is the game's own VR camera."
+                    : "The right stick turns the view around Lucky, and the left stick turns with it. Recenter turns it back. 2D sections and cutscenes always use the game's own view.",
+            });
             general.Rows.Add(new MenuUI.Row
             {
                 Label = "Resolution",
@@ -263,10 +277,10 @@ namespace NSLTVR
             {
                 var p = Playful.SuperLucky.Gameplay.Player.PlayerController.Instance;
                 if (p != null)
-                    Log.LogInfo(string.Format(CultureInfo.InvariantCulture, "TRACK pos ({0:F2},{1:F2}) vel ({2:F2},{3:F2}) raw ({4:F2},{5:F2}) world ({6:F2},{7:F2}) enabled {8} state {9} {10} cam yaw {11:F1} volatility {12:F3}",
+                    Log.LogInfo(string.Format(CultureInfo.InvariantCulture, "TRACK pos ({0:F2},{1:F2}) vel ({2:F2},{3:F2}) raw ({4:F2},{5:F2}) world ({6:F2},{7:F2}) enabled {8} state {9} {10} cam yaw {11:F1} orbit {13:F1} volatility {12:F3}",
                         p.transform.position.x, p.transform.position.z, p.Velocity.x, p.Velocity.z, p.Input.RawInput.x, p.Input.RawInput.y,
                         p.Input.WorldSpaceInput.x, p.Input.WorldSpaceInput.z, p.Input.InputEnabled, p.ControllerState, p.MoveState,
-                        CameraManager.Instance != null && CameraManager.Instance.GetCameraGameObject() != null ? CameraManager.Instance.GetCameraGameObject().transform.eulerAngles.y : -1f, p.Input.InputVolatility));
+                        CameraManager.Instance != null && CameraManager.Instance.GetCameraGameObject() != null ? CameraManager.Instance.GetCameraGameObject().transform.eulerAngles.y : -1f, p.Input.InputVolatility, CameraOrbit.Yaw));
                 yield return wait;
             }
         }
@@ -305,7 +319,8 @@ namespace NSLTVR
                 case "stamp": Rig.Stamp = a.Length < 2 || a[1] != "0"; break;
                 case "ipd": Rig.IpdOverride = F(a[1]); Log.LogInfo("IPD override " + Rig.IpdOverride); break;
                 case "fakehead": Rig.LabHead = new Vector3(F(a[1]), F(a[2]), F(a[3])); break;
-                case "recenter": Rig.Recenter(); break;
+                case "recenter": Rig.Recenter(); CameraOrbit.Reset(); break;
+                case "orbit": CameraOrbit.Yaw = F(a[1]); Log.LogInfo("ORBIT lab set " + CameraOrbit.Yaw); break;
                 case "menu": Menu.LabKey(a.Length > 1 ? a[1] : "open"); break;
                 case "speedlog": Speed.Begin(a.Length > 1 ? F(a[1]) : 5f); break;
                 case "gfx": Probes.Graphics(); break;
