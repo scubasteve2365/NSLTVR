@@ -15,17 +15,17 @@ namespace NSLTVR
     // NSLTVR build 1 (Phase 1): New Super Lucky's Tale on the VR camera rig left over from Lucky's Tale VR, both eyes from
     // one game tick through OpenXR, the HUD on its own panel, and a basic in-headset menu. Skeleton from CupheadVR (MIT,
     // scubasteve2365). Lab probes are read from vrlab_command.txt in the game folder while Lab.Commands is on.
-    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "1.0.1")]
+    [BepInPlugin("com.scubasteve2365.nsltvr", "NSLTVR", "1.0.2")]
     public class Plugin : BaseUnityPlugin
     {
-        internal const string Version = "1.01";
+        internal const string Version = "1.02";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<string> CameraRig;
         internal static Plugin Instance;
         static readonly System.Collections.Generic.HashSet<string> seenErrors = new System.Collections.Generic.HashSet<string>();
         ConfigEntry<bool> labCommands, autoStart, bloomOff;
         ConfigEntry<float> turnSpeed, resolution, ipdScale, hudWidth, hudX, hudY, hudDistance, menuWidth, menuX, menuY, menuDistance;
-        ConfigEntry<string> hudMode, menuKey, forcePreset, picture;
+        ConfigEntry<string> hudMode, menuKey, forcePreset, picture, stickMode;
         ConfigEntry<int> clickVolume;
         string commandFile;
         int nextCommandCheck, nextSlowCheck;
@@ -45,7 +45,9 @@ namespace NSLTVR
             forcePreset = Config.Bind("Lab", "ForcePreset", "", "Lab only: put the game on this graphics preset at start (graphics_low, graphics_medium, ...). Empty leaves your settings alone.");
             ipdScale = Config.Bind("Lab", "IpdOverride", 0f, "0 uses the game's own camera scale (zone IPDScale). Above 0, use this scale instead.");
             autoStart = Config.Bind("VR", "AutoStart", true, "Start VR by itself once the game is running.");
-            turnSpeed = Config.Bind("VR", "RightStickCamera", 90f, "Right stick turns the view around Lucky, in degrees a second at full tilt. 0 is off. 60 slow, 90 medium, 135 fast.");
+            turnSpeed = Config.Bind("VR", "RightStickCamera", 90f, "How fast the right stick turns, in degrees a second at full tilt (60 slow, 90 medium, 135 fast).");
+            stickMode = Config.Bind("VR", "RightStickMode", "Camera", "Right stick camera control: Off, View (turns only your view around Lucky, 1.01) or Camera (turns the game's own VR camera, 1.02).");
+            if (turnSpeed.Value <= 0f) { turnSpeed.Value = 90f; stickMode.Value = "Off"; Log.LogInfo("SETTINGS 1.01 had the right stick camera off: kept off"); }
             CameraRig = Config.Bind("VR", "CameraRig", "VR", "VR: the camera rig left over from Lucky's Tale VR. Flat: the game's normal camera. Read at game start.");
             resolution = Config.Bind("VR", "Resolution", 1.0f, "Eye size as a share of what the headset asks for. 1 is 100%. Used from the next start.");
             bloomOff = Config.Bind("Picture", "BloomOff", true, "Turn off the game's bloom and god rays, which look different in each eye.");
@@ -140,8 +142,10 @@ namespace NSLTVR
             Rig.HudWidth = hudWidth.Value; Rig.HudX = hudX.Value; Rig.HudY = hudY.Value; Rig.HudDistance = hudDistance.Value;
             Rig.MenuWidth = menuWidth.Value; Rig.MenuX = menuX.Value; Rig.MenuY = menuY.Value; Rig.MenuDistance = menuDistance.Value;
             Effects.BloomOff = bloomOff.Value;
-            CameraOrbit.DegreesPerSecond = turnSpeed.Value;
-            if (turnSpeed.Value <= 0f) CameraOrbit.Reset();
+            int mode = StickModeIndex();
+            CameraOrbit.DegreesPerSecond = mode == 0 ? 0f : Mathf.Max(10f, turnSpeed.Value);
+            if (mode == 0) CameraOrbit.Reset();
+            if (CameraTurn.On != (mode == 2)) CameraTurn.Set(mode == 2);
             Rig.PictureMode = picture.Value.Equals("Steady", StringComparison.OrdinalIgnoreCase) ? 1 : picture.Value.Equals("Panel", StringComparison.OrdinalIgnoreCase) ? 2 : 0;
         }
 
@@ -166,9 +170,8 @@ namespace NSLTVR
         }
 
         static readonly string[] HudModes = { "Fixed", "FollowsHead", "Hidden" };
-        static readonly float[] TurnSpeeds = { 0f, 60f, 90f, 135f };
-        static float TurnStep(float v) { float best = TurnSpeeds[0]; foreach (var t in TurnSpeeds) if (Mathf.Abs(t - v) < Mathf.Abs(best - v)) best = t; return best; }
-        static string TurnName(float v) { float t = TurnStep(v); return t <= 0f ? "Off" : t <= 60f ? "Slow" : t <= 90f ? "Medium" : "Fast"; }
+        static readonly string[] StickModes = { "Off", "View", "Camera" }, StickNames = { "Off", "View rotate", "Camera rotate" };
+        int StickModeIndex() { int i = Array.FindIndex(StickModes, m => m.Equals(stickMode.Value, StringComparison.OrdinalIgnoreCase)); return i < 0 ? 2 : i; }
         string armed, lastSettingsResult;
         float armedUntil;
 
@@ -206,11 +209,12 @@ namespace NSLTVR
                 Help = () => "Press A to put the view, the HUD and this menu straight ahead of where you face now, and turn the camera back to the game's own view. Your headset's own recenter does the same." });
             general.Rows.Add(new MenuUI.Row
             {
-                Label = "Right stick camera",
-                Value = () => TurnName(turnSpeed.Value),
-                Change = dir => { int i = Mathf.Clamp(Array.IndexOf(TurnSpeeds, TurnStep(turnSpeed.Value)) + dir, 0, TurnSpeeds.Length - 1); turnSpeed.Value = TurnSpeeds[i]; PushSettings(); Log.LogInfo("MENU right stick camera " + turnSpeed.Value); },
-                Help = () => turnSpeed.Value <= 0f ? "Off: the right stick does nothing, and the camera is the game's own VR camera."
-                    : "The right stick turns the view around Lucky, and the left stick turns with it. Recenter turns it back. 2D sections and cutscenes always use the game's own view.",
+                Label = "Right stick camera control",
+                Value = () => StickNames[StickModeIndex()],
+                Change = dir => { int i = Mathf.Clamp(StickModeIndex() + dir, 0, 2); stickMode.Value = StickModes[i]; PushSettings(); Log.LogInfo("MENU right stick camera control " + stickMode.Value); },
+                Help = () => StickModeIndex() == 0 ? "Off: the right stick does nothing, and the camera is the game's own VR camera."
+                    : StickModeIndex() == 1 ? "View rotate: the right stick turns only your view around Lucky. The game's camera stays where it was. Recenter turns it back."
+                    : "Camera rotate: the right stick turns the game's own VR camera around Lucky, so sound and the game follow the turn. Recenter turns it back.",
             });
             general.Rows.Add(new MenuUI.Row
             {

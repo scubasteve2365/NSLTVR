@@ -2,7 +2,7 @@
 
 VR mod for **New Super Lucky's Tale** (Steam). The game runs on the VR camera it inherited from Lucky's Tale VR: each level is a toy world built around you, and Lucky runs through it in front of you. Native stereo, played seated with a gamepad.
 
-**Download:** [NSLTVR-1.01.zip](https://github.com/scubasteve2365/NSLTVR/releases/latest) from Releases.
+**Download:** [NSLTVR-1.02.zip](https://github.com/scubasteve2365/NSLTVR/releases/latest) from Releases.
 
 **Support:** if you enjoy it, you can [buy me a coffee](https://buymeacoffee.com/scubasteve2365).
 
@@ -21,7 +21,7 @@ VR mod for **New Super Lucky's Tale** (Steam). The game runs on the VR camera it
 
 ## Install
 
-1. Download `NSLTVR-1.01.zip` from Releases and unzip it anywhere.
+1. Download `NSLTVR-1.02.zip` from Releases and unzip it anywhere.
 2. Double click `Install NSLTVR.bat` and type 1. Windows may ask you to confirm, because the bat file is not signed. It is plain text if you want to read it first.
 3. Start SteamVR or connect Virtual Desktop, then start New Super Lucky's Tale from Steam. VR starts by itself.
 
@@ -31,7 +31,7 @@ To uninstall, run the bat again and type 2.
 
 Hold both sticks down for half a second, or press Insert, to open the menu. LB and RB change tab, up and down choose, left and right change, A selects, B closes. Every row explains itself at the bottom of the menu. Settings save at once.
 
-**General:** Recenter, Right stick camera (Off, Slow, Medium, Fast), Resolution (applies next start), Picture (Auto, Steady, Panel), Click sounds, Load VR baseline, Load best VR performance.
+**General:** Recenter, Right stick camera control (Off, View rotate, Camera rotate), Resolution (applies next start), Picture (Auto, Steady, Panel), Click sounds, Load VR baseline, Load best VR performance.
 
 ![General tab](docs/menu_general.png)
 
@@ -59,7 +59,7 @@ The mod turns off VSync and the frame cap while VR runs (it paces the game to yo
 
 - Steam version only.
 - No motion controls. A gamepad is required.
-- The right stick turns the view around Lucky (new in 1.01, on by default, Medium speed). The game's own camera still does the following; the mod only turns your view, and the left stick turns with it. Recenter turns it back. 2D sections and cutscenes always use the game's own view. Turn it off in the General tab if you prefer the fixed Lucky's Tale VR view. Levels were built to be seen from the front, so from other angles you may see unfinished backs of scenery.
+- Right stick camera control (General tab): **Camera rotate** (default) turns the game's own VR camera around Lucky, so sound and the game follow the turn. **View rotate** (the 1.01 way) turns only your view and leaves the game's camera where it was. **Off** keeps the fixed Lucky's Tale VR view. The left stick turns with the camera, Recenter turns it back, and 2D sections and cutscenes always use the game's own view. Levels were built to be seen from the front, so from other angles you may see unfinished backs of scenery, and the camera can end up inside walls behind Lucky. Turn speed is `RightStickCamera` in the settings file (degrees a second, default 90).
 - Screens the game shows without its 3D camera (title, loading, the costume shop) appear on a big flat screen in front of you.
 - No DLSS or other upscaler. The game is light and does not need one.
 - Tested on a Pimax Dream Air through SteamVR at 72 Hz and a Meta Quest 3 through Virtual Desktop (VDXR) at 90 Hz, both with an RTX 5090. Other headsets should work through OpenXR but have not been tried. AMD and Intel graphics have not been tried.

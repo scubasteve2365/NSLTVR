@@ -33,6 +33,8 @@ namespace NSLTVR
 
         internal static void Set(bool on)
         {
+            // Leaving camera mode: give the motor back the game's own rotation.
+            if (On && !on && haveBase && CameraMotor.Instance is CurveTrackingCamera m) m.transform.rotation = baseRot;
             On = on;
             haveBase = false;
             lastYaw = CameraOrbit.Yaw;
@@ -64,7 +66,7 @@ namespace NSLTVR
             static void Postfix(CurveTrackingCamera __instance)
             {
                 if (!On || !ReferenceEquals(__instance, CameraMotor.Instance) || Time.unscaledTime < nextLog) return;
-                nextLog = Time.unscaledTime + 1f;
+                nextLog = Time.unscaledTime + (CameraOrbit.Yaw != 0f ? 10f : 60f);
                 var p = __instance.Tracking;
                 var z = __instance.ActiveZone;
                 var t = __instance.transform;
